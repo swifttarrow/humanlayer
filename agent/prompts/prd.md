@@ -143,4 +143,4 @@ Before finishing, verify:
 
 ## PROJECT DESCRIPTION
 
-[PASTE YOUR PROJECT DESCRIPTION HERE — include: domain, core technical challenge, methodology emphasis, key features required, target complexity level, whether interviews are part of the gate]
+Refer to `docs/requirements.md`.
