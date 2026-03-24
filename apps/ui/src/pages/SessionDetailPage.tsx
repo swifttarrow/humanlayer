@@ -15,6 +15,8 @@ export function SessionDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [stopping, setStopping] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  const [reply, setReply] = useState("");
+  const [submittingReply, setSubmittingReply] = useState(false);
   const lastSeqRef = useRef(-1);
   const esRef = useRef<EventSource | null>(null);
 
@@ -92,6 +94,26 @@ export function SessionDetailPage() {
     }
   };
 
+  const handleReply = async () => {
+    if (!id || !reply.trim()) return;
+    setSubmittingReply(true);
+    setError(null);
+    try {
+      const followupGoal = `Follow-up on session ${id}:\n\n${reply.trim()}`;
+      const res = await api.sessions.create({
+        goal: followupGoal,
+        metadata: {
+          parentSessionId: id,
+          followup: true,
+        },
+      });
+      navigate(`/sessions/${res.session.id}`);
+    } catch (err) {
+      setError(String(err));
+      setSubmittingReply(false);
+    }
+  };
+
   const isActive = session && ["starting", "running", "stopping"].includes(session.status);
   const canRetry = session && ["stopped", "failed"].includes(session.status);
 
@@ -149,6 +171,50 @@ export function SessionDetailPage() {
 
         {/* Side panel */}
         <div style={{ width: 340, background: "#0F172A", overflowY: "auto", padding: 24, display: "flex", flexDirection: "column", gap: 20 }}>
+          {/* Reply composer */}
+          <div style={{ color: "#64748B", fontSize: 11, fontWeight: 600, letterSpacing: 2, fontFamily: "'JetBrains Mono', monospace" }}>
+            RESPOND
+          </div>
+          <div style={{ background: "#1E293B", borderRadius: 8, padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+            <textarea
+              value={reply}
+              onChange={(e) => setReply(e.target.value)}
+              placeholder="Send a follow-up instruction..."
+              rows={4}
+              style={{
+                background: "#0F172A",
+                border: "1px solid #334155",
+                borderRadius: 6,
+                padding: 10,
+                color: "#fff",
+                fontSize: 13,
+                fontFamily: "Inter, sans-serif",
+                resize: "vertical",
+                outline: "none",
+                width: "100%",
+                boxSizing: "border-box",
+              }}
+            />
+            <button
+              onClick={() => void handleReply()}
+              disabled={!reply.trim() || submittingReply}
+              style={{
+                background: reply.trim() && !submittingReply ? "#22D3EE" : "#1E4060",
+                color: "#0A0F1C",
+                border: "none",
+                borderRadius: 6,
+                padding: "10px 12px",
+                cursor: reply.trim() && !submittingReply ? "pointer" : "not-allowed",
+                fontWeight: 600,
+                fontSize: 13,
+              }}
+            >
+              {submittingReply ? "Sending…" : "Send Follow-up"}
+            </button>
+          </div>
+
+          <div style={{ background: "#0F172A", height: 1 }} />
+
           {/* Session info */}
           <div style={{ color: "#64748B", fontSize: 11, fontWeight: 600, letterSpacing: 2, fontFamily: "'JetBrains Mono', monospace" }}>SESSION INFO</div>
           {session && (
