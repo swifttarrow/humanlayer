@@ -58,7 +58,7 @@ function buildSteps(events: SessionEvent[]): Step[] {
       }
     } else if (ev.eventType === "message.completed") {
       const s = stepsMap.get(stepId);
-      if (s) s.message = (ev.payload.text as string)?.slice(0, 300);
+      if (s) s.message = ev.payload.text as string;
     }
   }
 
@@ -134,8 +134,8 @@ export function StructuredTrace({ events, currentTool }: Props) {
                         {tool.name}
                       </span>
                       {tool.result && (
-                        <span style={{ color: "#475569", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 300 }}>
-                          {tool.result.slice(0, 80)}
+                        <span style={{ color: "#475569", fontSize: 11, whiteSpace: "pre-wrap", wordBreak: "break-word", flex: 1 }}>
+                          {tool.result}
                         </span>
                       )}
                     </div>
