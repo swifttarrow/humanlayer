@@ -3,12 +3,16 @@ import type {
   CreateSessionResponse,
   GetSessionResponse,
   ListSessionsResponse,
+  Session,
   StopSessionResponse,
   RetrySessionResponse,
   SSESessionEvent,
 } from "@humanlayer/shared";
 
 const BASE = "/api";
+type SessionsStreamEvent =
+  | { type: "snapshot"; data: Session[] }
+  | { type: "error"; data: { message: string } };
 
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`);
@@ -38,6 +42,21 @@ export const api = {
     stop: (id: string, reason?: string) =>
       post<StopSessionResponse>(`/sessions/${id}/stop`, { reason }),
     retry: (id: string) => post<RetrySessionResponse>(`/sessions/${id}/retry`),
+    stream: (
+      onEvent: (event: SessionsStreamEvent) => void,
+      onError?: (err: Event) => void
+    ): EventSource => {
+      const es = new EventSource(`${BASE}/sessions/stream`);
+      es.onmessage = (e: MessageEvent) => {
+        try {
+          onEvent(JSON.parse(e.data as string) as SessionsStreamEvent);
+        } catch {
+          // ignore parse errors
+        }
+      };
+      if (onError) es.onerror = onError;
+      return es;
+    },
   },
 
   stream: (

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { Session } from "@humanlayer/shared";
 import { api } from "../api.js";
@@ -10,22 +10,25 @@ export function SessionsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    try {
-      const res = await api.sessions.list();
-      setSessions(res.sessions);
-    } catch (err) {
-      setError(String(err));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
-    void load();
-    const interval = setInterval(() => void load(), 5000);
-    return () => clearInterval(interval);
-  }, [load]);
+    const es = api.sessions.stream(
+      (event) => {
+        if (event.type === "snapshot") {
+          setSessions(event.data);
+          setLoading(false);
+          setError(null);
+        } else if (event.type === "error") {
+          setError(event.data.message);
+          setLoading(false);
+        }
+      },
+      () => {
+        setError("Realtime connection lost. Retrying...");
+      }
+    );
+
+    return () => es.close();
+  }, []);
 
   const stats = {
     total: sessions.length,

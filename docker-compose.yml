@@ -29,6 +29,8 @@ services:
       RUNTIME_MODE: ${RUNTIME_MODE:-docker}
     command: >
       sh -c "npx prisma migrate deploy && node dist/apps/server/src/index.js"
+    ports:
+      - "3000:3000"
     restart: unless-stopped
 
   agent:

@@ -38,6 +38,7 @@ export type SessionEventType =
   | "tool.started"
   | "tool.completed"
   | "tool.failed"
+  | "thinking.token"
   | "message.completed"
   | "heartbeat"
   | "stop.requested"

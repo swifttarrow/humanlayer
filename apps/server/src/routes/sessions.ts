@@ -29,6 +29,73 @@ const StopSessionSchema = z.object({
   reason: z.string().optional(),
 });
 
+const SESSIONS_STREAM_INTERVAL_MS = parseInt(
+  process.env.SESSIONS_STREAM_INTERVAL_MS ?? "2000",
+  10
+);
+
+// GET /sessions/stream
+// SSE stream for list view: emits full session snapshots when changed.
+sessionsRouter.get("/stream", async (_req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders();
+
+  let closed = false;
+  let lastSnapshotHash = "";
+
+  async function pushSnapshotIfChanged(force = false) {
+    if (closed) return;
+    const result = await listSessions();
+    const hash = JSON.stringify(
+      result.sessions.map((s) => ({
+        id: s.id,
+        status: s.status,
+        updatedAt: s.updatedAt,
+        endedAt: s.endedAt,
+      }))
+    );
+    if (!force && hash === lastSnapshotHash) return;
+    lastSnapshotHash = hash;
+    res.write(
+      `data: ${JSON.stringify({
+        type: "snapshot",
+        data: result.sessions,
+      })}\n\n`
+    );
+  }
+
+  try {
+    await pushSnapshotIfChanged(true);
+  } catch (err) {
+    res.write(
+      `data: ${JSON.stringify({
+        type: "error",
+        data: { message: String(err) },
+      })}\n\n`
+    );
+  }
+
+  const interval = setInterval(() => {
+    void pushSnapshotIfChanged().catch((err: unknown) => {
+      if (closed) return;
+      res.write(
+        `data: ${JSON.stringify({
+          type: "error",
+          data: { message: String(err) },
+        })}\n\n`
+      );
+    });
+  }, SESSIONS_STREAM_INTERVAL_MS);
+
+  _req.on("close", () => {
+    closed = true;
+    clearInterval(interval);
+  });
+});
+
 // POST /sessions
 sessionsRouter.post("/", async (req, res) => {
   const parsed = CreateSessionSchema.safeParse(req.body);
