@@ -18,6 +18,7 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const EVAL_DIR = path.resolve(__dirname, "../../../../../docs/evals");
 const SERVER_URL = process.env.SERVER_URL ?? "http://localhost:3000";
+const PARITY_SERVER_URL = process.env.PARITY_SERVER_URL;
 const EVAL_SPEC_VERSION = "1.0";
 const MODEL_CONFIG = {
   model: process.env.AGENT_MODEL ?? "gpt-4.1-mini",
@@ -25,14 +26,18 @@ const MODEL_CONFIG = {
   passRateThreshold: 1.0,
 };
 
-async function apiPost<T>(path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${SERVER_URL}${path}`, {
+async function apiPostTo<T>(baseUrl: string, path: string, body?: unknown): Promise<T> {
+  const res = await fetch(`${baseUrl}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) throw new Error(`POST ${path} → ${res.status}: ${await res.text()}`);
   return res.json() as Promise<T>;
+}
+
+async function apiPost<T>(path: string, body?: unknown): Promise<T> {
+  return apiPostTo<T>(SERVER_URL, path, body);
 }
 
 async function apiGet<T>(path: string): Promise<T> {
@@ -44,7 +49,7 @@ async function apiGet<T>(path: string): Promise<T> {
 interface EvalResult {
   id: string;
   name: string;
-  category: "lifecycle" | "event" | "reconnect" | "stop" | "safety" | "efficiency";
+  category: "lifecycle" | "event" | "reconnect" | "stop" | "safety" | "workdir" | "efficiency";
   mustPass: boolean;
   passed: boolean;
   latencyMs?: number;
@@ -214,7 +219,7 @@ async function evalSafety() {
 async function evalWorkdir() {
   console.log("\n[Working Directory Policy]");
 
-  await run("WD-01", "Create session with workingDirectory stores policy in metadata", "lifecycle", true, async () => {
+  await run("WD-01", "Create session with workingDirectory stores policy in metadata", "workdir", true, async () => {
     // Use /tmp as allowed root (default config)
     try {
       const { session } = await apiPost<{ session: { id: string; metadata?: Record<string, unknown> } }>("/sessions", {
@@ -233,14 +238,14 @@ async function evalWorkdir() {
     }
   });
 
-  await run("WD-02", "Create session without workingDirectory succeeds (backward compat)", "lifecycle", true, async () => {
+  await run("WD-02", "Create session without workingDirectory succeeds (backward compat)", "workdir", true, async () => {
     const { session } = await apiPost<{ session: { id: string; status: string } }>("/sessions", {
       goal: "no workdir eval test",
     });
     return { passed: session.status === "created", notes: "No workingDirectory → created normally" };
   });
 
-  await run("WD-03", "Create session with invalid workingDirectory returns reason code", "safety", true, async () => {
+  await run("WD-03", "Create session with invalid workingDirectory returns reason code", "workdir", true, async () => {
     try {
       await apiPost("/sessions", {
         goal: "invalid workdir eval test",
@@ -254,6 +259,59 @@ async function evalWorkdir() {
         notes: `Rejected with: ${msg.slice(0, 200)}`,
       };
     }
+  });
+
+  await run("WD-04", "Local/docker parity: same workdir input has same allow/deny outcome", "workdir", false, async () => {
+    if (!PARITY_SERVER_URL) {
+      return {
+        passed: true,
+        notes: "Skipped (set PARITY_SERVER_URL to enable cross-environment parity check)",
+      };
+    }
+
+    const testPaths = [
+      "/tmp",
+      "/etc",
+      "/nonexistent/path/that/does/not/exist",
+    ];
+
+    const mismatches: string[] = [];
+    for (const workingDirectory of testPaths) {
+      const payload = {
+        goal: `parity check ${workingDirectory}`,
+        workingDirectory,
+      };
+
+      let primaryAllowed = false;
+      let parityAllowed = false;
+
+      try {
+        await apiPostTo(`${SERVER_URL}`, "/sessions", payload);
+        primaryAllowed = true;
+      } catch {
+        primaryAllowed = false;
+      }
+
+      try {
+        await apiPostTo(`${PARITY_SERVER_URL}`, "/sessions", payload);
+        parityAllowed = true;
+      } catch {
+        parityAllowed = false;
+      }
+
+      if (primaryAllowed !== parityAllowed) {
+        mismatches.push(
+          `${workingDirectory}: primary=${primaryAllowed ? "allow" : "deny"}, parity=${parityAllowed ? "allow" : "deny"}`
+        );
+      }
+    }
+
+    return {
+      passed: mismatches.length === 0,
+      notes: mismatches.length === 0
+        ? "All sampled paths matched allow/deny outcomes"
+        : `Mismatches: ${mismatches.join("; ")}`,
+    };
   });
 }
 

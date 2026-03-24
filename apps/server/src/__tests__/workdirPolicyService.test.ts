@@ -6,12 +6,15 @@ import { validateWorkingDirectory, WorkdirValidationError } from "../services/wo
 
 let tmpDir: string;
 let outsideDir: string;
+let homeTmpDir: string;
 
 beforeAll(async () => {
   tmpDir = await mkdtemp(path.join(os.tmpdir(), "workdir-test-"));
   outsideDir = await mkdtemp(path.join(os.tmpdir(), "workdir-outside-test-"));
+  homeTmpDir = await mkdtemp(path.join(os.homedir(), "workdir-home-test-"));
   // Create a subdirectory
   await mkdir(path.join(tmpDir, "project"));
+  await mkdir(path.join(homeTmpDir, "project"));
   // Create a file (not a directory)
   await writeFile(path.join(tmpDir, "file.txt"), "hello");
   // Create a symlink inside allowed roots
@@ -25,6 +28,7 @@ afterAll(async () => {
   const { rm } = await import("fs/promises");
   await rm(tmpDir, { recursive: true, force: true });
   await rm(outsideDir, { recursive: true, force: true });
+  await rm(homeTmpDir, { recursive: true, force: true });
 });
 
 const configWith = (roots: string[]) => ({
@@ -116,5 +120,20 @@ describe("validateWorkingDirectory", () => {
     );
     expect(policy.exposedSurfaces).toHaveLength(1);
     expect(policy.exposedSurfaces[0].label).toBe("test");
+  });
+
+  it("accepts ~-prefixed working directory paths when under allowed roots", async () => {
+    const home = os.homedir();
+    const projectPath = path.join(homeTmpDir, "project");
+    const relFromHome = path.relative(home, projectPath);
+    const tildePath = relFromHome ? `~/${relFromHome}` : "~";
+
+    const policy = await validateWorkingDirectory(
+      tildePath,
+      [],
+      configWith([home])
+    );
+    expect(policy.inputPath).toBe(tildePath);
+    expect(policy.resolvedPath).toContain("workdir-home-test-");
   });
 });

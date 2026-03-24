@@ -1,5 +1,6 @@
 import { realpath, stat } from "fs/promises";
 import path from "path";
+import os from "os";
 import type {
   ExposedSurface,
   RuntimeMode,
@@ -37,6 +38,16 @@ const DEFAULT_CONFIG: PolicyServiceConfig = {
   runtimeMode: (process.env.RUNTIME_MODE as RuntimeMode) ?? "local",
 };
 
+function expandHomeDir(inputPath: string): string {
+  if (inputPath === "~") {
+    return os.homedir();
+  }
+  if (inputPath.startsWith("~/")) {
+    return path.join(os.homedir(), inputPath.slice(2));
+  }
+  return inputPath;
+}
+
 /**
  * Check if a canonical path is under one of the allowed roots.
  */
@@ -72,8 +83,9 @@ export async function validateWorkingDirectory(
   exposedSurfaces: ExposedSurface[] = [],
   config: PolicyServiceConfig = DEFAULT_CONFIG
 ): Promise<WorkingDirectoryPolicy> {
+  const expandedInputPath = expandHomeDir(inputPath);
   // Resolve to absolute path
-  const absolutePath = path.resolve(inputPath);
+  const absolutePath = path.resolve(expandedInputPath);
   const absoluteRoots = config.allowedRoots.map((root) => path.resolve(root));
 
   // Resolve allowed roots to canonical paths
@@ -130,7 +142,7 @@ export async function validateWorkingDirectory(
 
   // Validate exposed surfaces
   for (const surface of exposedSurfaces) {
-    const surfaceAbsolute = path.resolve(surface.hostPath);
+    const surfaceAbsolute = path.resolve(expandHomeDir(surface.hostPath));
     if (!isUnderAllowedRoot(surfaceAbsolute, absoluteRoots)) {
       throw new WorkdirValidationError(
         "EXPOSED_SURFACE_NOT_ALLOWED",

@@ -13,6 +13,9 @@ npm run dev --workspace=apps/server
 # Run evals (pass/fail only)
 npm run eval:mvp
 
+# Optional parity check (primary vs secondary environment, e.g. local vs docker)
+PARITY_SERVER_URL=http://localhost:3001 npm run eval:mvp
+
 # Save results to docs/evals/latest-results.json
 npm run eval:mvp -- --save
 
@@ -118,12 +121,15 @@ All must-pass scenarios must be green to exit 0. Efficiency failures are warning
 | WD-01 | Create session with workingDirectory stores policy in metadata | ✓ | deterministic |
 | WD-02 | Create session without workingDirectory succeeds (backward compat) | ✓ | deterministic |
 | WD-03 | Create session with invalid workingDirectory returns reason code | ✓ | deterministic |
+| WD-04 | Local/docker parity: same workdir input has same allow/deny outcome | — | deterministic |
 
 **WD-01 fixture**: `POST /sessions { goal: "workdir eval test", workingDirectory: "/tmp" }` → expect session metadata contains `workdirPolicy` with `resolvedPath` and `runtimeMode`
 
 **WD-02 fixture**: `POST /sessions { goal: "no workdir" }` → expect `session.status === "created"` (no error)
 
 **WD-03 fixture**: `POST /sessions { goal: "invalid", workingDirectory: "/nonexistent/path" }` → expect HTTP 422 with `WORKDIR_NOT_FOUND` or `WORKDIR_NOT_ALLOWED` reason code
+
+**WD-04 fixture**: if `PARITY_SERVER_URL` is set, submit a small set of identical `workingDirectory` values to both servers and compare allow/deny outcomes. Expected result: outcomes match for each sampled path. If `PARITY_SERVER_URL` is unset, scenario is skipped and marked advisory pass.
 
 ---
 
