@@ -4,9 +4,9 @@
 Ensure the requirement doc uses terminology and defaults that match the chosen contract model.
 
 ## Deliverables
-- [ ] `docs/requirements/2-working-directory.md` reflects metadata-envelope policy persistence
-- [ ] Requirement text is explicit about symlink handling and server-side validation authority
-- [ ] Requirement acceptance criteria map cleanly to shared reason codes and API behavior
+- [x] `docs/requirements/2-working-directory.md` reflects metadata-envelope policy persistence
+- [x] Requirement text is explicit about symlink handling and server-side validation authority
+- [x] Requirement acceptance criteria map cleanly to shared reason codes and API behavior
 
 ## Notes
 This is a documentation consistency pass; no runtime behavior changes in this task.

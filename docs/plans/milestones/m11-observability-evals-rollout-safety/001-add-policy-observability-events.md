@@ -4,9 +4,9 @@
 Emit and persist policy-focused metadata and denied-access signals for auditing and debugging.
 
 ## Deliverables
-- [ ] Server and/or agent event flow includes structured denied-access events
-- [ ] Run/session metadata captures resolved workdir and exposed-surface policy
-- [ ] Event visibility and payload shape are documented for UI/debug consumption
+- [x] Server and/or agent event flow includes structured denied-access events
+- [x] Run/session metadata captures resolved workdir and exposed-surface policy
+- [x] Event visibility and payload shape are documented for UI/debug consumption
 
 ## Notes
 Coordinate event naming with existing `SessionEventType` conventions to avoid schema drift.

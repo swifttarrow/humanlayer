@@ -41,6 +41,7 @@ npm run eval:mvp -- --baseline
 | event | ✓ | Event ingest or agent pull is broken — blocker |
 | stop | ✓ | Stop semantics broken — data integrity risk |
 | safety | ✓ | Validation not enforced — security/reliability risk |
+| workdir | ✓ | Working directory policy not enforced — security risk |
 | efficiency | — | Latency regression — advisory only |
 
 All must-pass scenarios must be green to exit 0. Efficiency failures are warnings only.
@@ -107,6 +108,22 @@ All must-pass scenarios must be green to exit 0. Efficiency failures are warning
 **SA-01 fixture**: Send 101-event batch → expect HTTP 4xx
 
 **SA-02 fixture**: `POST /sessions { goal: "" }` → expect HTTP 4xx
+
+---
+
+### Working Directory Policy
+
+| ID | Name | Must-Pass | Judge |
+|---|---|---|---|
+| WD-01 | Create session with workingDirectory stores policy in metadata | ✓ | deterministic |
+| WD-02 | Create session without workingDirectory succeeds (backward compat) | ✓ | deterministic |
+| WD-03 | Create session with invalid workingDirectory returns reason code | ✓ | deterministic |
+
+**WD-01 fixture**: `POST /sessions { goal: "workdir eval test", workingDirectory: "/tmp" }` → expect session metadata contains `workdirPolicy` with `resolvedPath` and `runtimeMode`
+
+**WD-02 fixture**: `POST /sessions { goal: "no workdir" }` → expect `session.status === "created"` (no error)
+
+**WD-03 fixture**: `POST /sessions { goal: "invalid", workingDirectory: "/nonexistent/path" }` → expect HTTP 422 with `WORKDIR_NOT_FOUND` or `WORKDIR_NOT_ALLOWED` reason code
 
 ---
 

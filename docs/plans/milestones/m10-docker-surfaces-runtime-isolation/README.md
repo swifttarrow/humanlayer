@@ -15,7 +15,7 @@ Make Docker behavior mirror local policy semantics while preserving container is
 ## Success Criteria
 
 ### Automated Verification
-- [ ] `docker compose config`
+- [x] `docker compose config`
 - [ ] `docker compose up --build` (smoke)
 
 ### Manual Verification

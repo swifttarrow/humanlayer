@@ -14,8 +14,8 @@ Define the typed policy envelope and session request contract that all component
 ## Success Criteria
 
 ### Automated Verification
-- [ ] `npm run typecheck --workspace=packages/shared`
-- [ ] `npm run lint --workspace=packages/shared`
+- [x] `npm run typecheck --workspace=packages/shared`
+- [x] `npm run lint --workspace=packages/shared`
 
 ### Manual Verification
 - [ ] Shared types clearly describe local vs docker runtime policy

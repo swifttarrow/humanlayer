@@ -4,9 +4,9 @@
 Add shared TypeScript contracts for working-directory input, normalized policy, and error semantics.
 
 ## Deliverables
-- [ ] `packages/shared/src/contracts.ts` includes `workingDirectory` in create-session DTOs
-- [ ] `packages/shared/src/contracts.ts` includes `WorkingDirectoryPolicy` and `ExposedSurface` interfaces
-- [ ] Contract layer defines machine-readable reason codes for workdir validation failures
+- [x] `packages/shared/src/contracts.ts` includes `workingDirectory` in create-session DTOs
+- [x] `packages/shared/src/contracts.ts` includes `WorkingDirectoryPolicy` and `ExposedSurface` interfaces
+- [x] Contract layer defines machine-readable reason codes for workdir validation failures
 
 ## Notes
 Keep contract naming aligned with server and UI payload usage to avoid adapter code.

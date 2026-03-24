@@ -15,8 +15,8 @@ Implement UI-based working-directory selection so users can configure path polic
 ## Success Criteria
 
 ### Automated Verification
-- [ ] `npm run test --workspace=apps/ui`
-- [ ] `npm run typecheck --workspace=apps/ui`
+- [x] `npm run test --workspace=apps/ui`
+- [x] `npm run typecheck --workspace=apps/ui`
 
 ### Manual Verification
 - [ ] User can set `working_directory` from UI session-creation flow

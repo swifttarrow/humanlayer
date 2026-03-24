@@ -4,9 +4,9 @@
 Set explicit Docker mounts and runtime paths so only approved surfaces are available in the agent container.
 
 ## Deliverables
-- [ ] `docker-compose.yml` mounts resolved workspace path to deterministic in-container location (e.g. `/workspace`)
-- [ ] Compose exposes only explicitly configured additional surfaces
-- [ ] `apps/agent/Dockerfile` runtime defaults support isolated execution model
+- [x] `docker-compose.yml` mounts resolved workspace path to deterministic in-container location (e.g. `/workspace`)
+- [x] Compose exposes only explicitly configured additional surfaces
+- [x] `apps/agent/Dockerfile` runtime defaults support isolated execution model
 
 ## Notes
 Do not introduce broad host mounts; maintain outbound-only networking for agent service.

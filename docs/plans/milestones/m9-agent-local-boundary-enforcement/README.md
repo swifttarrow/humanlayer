@@ -15,8 +15,8 @@ Enforce server-provided policy in agent runtime and tools so local mode cannot r
 ## Success Criteria
 
 ### Automated Verification
-- [ ] `npm run test --workspace=apps/agent`
-- [ ] `npm run typecheck --workspace=apps/agent`
+- [x] `npm run test --workspace=apps/agent`
+- [x] `npm run typecheck --workspace=apps/agent`
 
 ### Manual Verification
 - [ ] Agent runs with policy-derived default `cwd`

@@ -84,16 +84,19 @@ The UI must not bypass server validation or perform trust-only client-side allow
 
 ## 2. Path Resolution and Policy Enforcement
 
-Before agent start, the runtime must:
+Before agent start, the server must:
 
-- resolve the user-provided path to a canonical absolute path
-- validate the path against an allowlist policy
-- persist both the original input and resolved canonical path in session metadata
+- resolve the user-provided path to a canonical absolute path (via `realpath`, following symlinks only when both source and target remain within allowed roots)
+- validate the resolved path against a configured allowlist of root directories
+- persist the normalized `WorkingDirectoryPolicy` envelope (containing `inputPath`, `resolvedPath`, `runtimeMode`, and `exposedSurfaces`) in `Session.metadata`
+
+The server is the sole validation authority; the agent enforces the received policy without re-validating paths.
 
 Policy model:
 
 - default deny outside configured allowed roots
 - explicit allow for configured additional roots
+- symlinks allowed only when fully resolved target remains within allowed roots
 - no implicit expansion to broader parent directories
 
 ## 3. Local Runtime Boundary
@@ -183,8 +186,13 @@ Implicitly using process current directory without configuration is not allowed.
 8. A user can set `working_directory` from the UI session-creation flow, and the value is transmitted unchanged to the server for canonicalization/validation.
 9. When server validation fails, the UI surfaces the returned reason code/message and lets the user correct and resubmit without losing entered values.
 
+## Implementation Notes
+
+- **Policy persistence:** The server stores the validated `WorkingDirectoryPolicy` envelope in the existing `Session.metadata` JSON field. This avoids schema migration while preserving a typed contract that can later be promoted to dedicated columns.
+- **Symlink handling:** Symlinks are resolved via `realpath`; allowed only when both the input path and the resolved canonical target remain within configured allowed roots.
+- **Local containment:** First implementation uses tool-level filesystem boundary enforcement (not OS-level sandboxing). Stronger local containment is deferred as future hardening.
+- **Error codes:** Machine-readable `WorkdirErrorCode` values (`WORKDIR_NOT_FOUND`, `WORKDIR_NOT_DIRECTORY`, `WORKDIR_NOT_ALLOWED`, `EXPOSED_SURFACE_NOT_ALLOWED`) map directly to the shared contract in `packages/shared/src/contracts.ts`.
+
 ## Open Questions
 
 - Should per-session `working_directory` overrides be allowed for all users, or gated by role/policy?
-- Should symlink traversal be fully disallowed or allowed only when both source and target are inside allowed roots?
-- Should local mode support optional stronger containment (for example a lightweight sandbox profile) to more closely match Docker guarantees?

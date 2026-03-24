@@ -15,8 +15,8 @@ Implement server-side validation and policy normalization at session creation, a
 ## Success Criteria
 
 ### Automated Verification
-- [ ] `npm run test --workspace=apps/server`
-- [ ] `npm run typecheck --workspace=apps/server`
+- [x] `npm run test --workspace=apps/server`
+- [x] `npm run typecheck --workspace=apps/server`
 
 ### Manual Verification
 - [ ] Invalid directory requests fail before session creation

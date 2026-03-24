@@ -4,9 +4,9 @@
 Update session-create API validation to accept working-directory fields and return machine-readable failure reasons.
 
 ## Deliverables
-- [ ] `apps/server/src/routes/sessions.ts` accepts `workingDirectory` and optional `exposedSurfaces`
-- [ ] Invalid workdir payloads return reason-coded responses
-- [ ] Session create endpoint behavior remains backward compatible when field is omitted
+- [x] `apps/server/src/routes/sessions.ts` accepts `workingDirectory` and optional `exposedSurfaces`
+- [x] Invalid workdir payloads return reason-coded responses
+- [x] Session create endpoint behavior remains backward compatible when field is omitted
 
 ## Notes
 Use Zod for request validation and keep response format consistent with existing error handling conventions.

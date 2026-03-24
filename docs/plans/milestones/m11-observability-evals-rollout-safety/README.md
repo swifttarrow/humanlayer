@@ -15,8 +15,8 @@ Add runtime visibility, regression checks, and rollout guardrails for the new po
 ## Success Criteria
 
 ### Automated Verification
-- [ ] `npm run eval:mvp`
-- [ ] `npm run test`
+- [ ] `npm run eval:mvp` (requires running server)
+- [x] `npm run test`
 
 ### Manual Verification
 - [ ] Session metadata clearly shows resolved workdir + exposed surfaces

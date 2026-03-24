@@ -94,3 +94,21 @@ Use this format for new entries:
 **Impact:** Server becomes source of truth for policy validation; agent enforces the returned policy at tool/runtime boundaries; Docker/local parity can be tested against one shared contract.  
 **Owner:** Agent (Codex) with developer confirmation
 
+## [2026-03-24] Working directory enforcement via tool-level boundary checks
+
+**Context:** The working-directory requirement needs runtime enforcement in the agent, with a choice between OS-level sandboxing and tool-level path checks.
+**Options considered:** OS sandbox integration (macOS sandbox-exec, Linux seccomp) vs tool-level filesystem boundary enforcement at each tool call; OS sandboxing provides stronger guarantees but adds platform-specific complexity and reduces portability.
+**Decision:** Implement tool-level boundary enforcement in the agent for MVP, with canonical path resolution via `realpathSync` and check functions (`assertReadablePath`, `assertWritablePath`, `assertExecutableCwd`).
+**Rationale:** Tool-level checks are portable across platforms, straightforward to test, and sufficient for MVP trust boundaries. Stronger OS-level containment can be layered in later without changing the policy contract.
+**Impact:** Agent tools check paths against `WorkingDirectoryPolicy` before every read/write/execute. Denied operations produce structured `policy.denied` events for observability. Docker mode supplements this with read-only root filesystem, non-root user, and explicit mount restrictions.
+**Owner:** Agent (Claude) with developer confirmation
+
+## [2026-03-24] Policy observability via structured event types
+
+**Context:** Denied file access attempts need to be visible for debugging and auditing.
+**Options considered:** Log-only denied access signals vs structured event types emitted through the existing append-only event pipeline.
+**Decision:** Add `policy.validated` and `policy.denied` event types to the shared `SessionEventType` union and emit them through the standard event emitter.
+**Rationale:** Structured events flow through existing SSE and UI trace infrastructure, making policy behavior visible without additional tooling. They also persist in the durable event log for post-session audit.
+**Impact:** Agent emits `policy.validated` at session start (showing resolved policy) and `policy.denied` on each blocked tool call (showing operation, path, and reason).
+**Owner:** Agent (Claude) with developer confirmation
+
