@@ -312,6 +312,54 @@ The system must:
 * A completed or failed session remains viewable after page reload or restart.
 * Users can inspect both structured trace information and underlying raw event history.
 
+## 8. Evaluation and Regression Requirements
+
+The MVP must include a lightweight but explicit evaluation loop so behavior changes can be measured, not guessed.
+
+The system must:
+
+* define a small, versioned eval set for core lifecycle behaviors (`create`, `run`, `stop`, `retry`, and `reconnect/replay`)
+* define a small, versioned safety/adversarial eval set (for example: prompt-injection attempts, disallowed command patterns, and secret-exfiltration attempts)
+* define deterministic pass/fail checks for each eval case
+* include qualitative scoring rubrics for trace quality and stop-semantic honesty
+* run evals locally via a documented command
+* require eval results to be recorded in a durable artifact before demo sign-off
+* compare the latest eval run against a saved baseline and fail the gate on must-pass regressions
+
+For non-deterministic model behavior, the MVP eval harness must:
+
+* pin and record model configuration used for evals (including temperature and any other variance-driving settings)
+* support repeated runs per scenario and report aggregate pass rate
+* define a minimum pass-rate threshold for probabilistic scenarios that are not strict binary checks
+* surface variance explicitly in eval output so regressions are distinguishable from noise
+
+MVP eval categories must include at least:
+
+* lifecycle correctness evals (state transitions, terminal outcomes, idempotent controls)
+* event integrity evals (`event_id` dedupe, `sequence_number` ordering, stale-attempt rejection)
+* realtime recovery evals (SSE disconnect/reconnect with snapshot + replay correctness)
+* stop contract evals (no new step starts after stop acceptance)
+* safety/adversarial evals (expected refusal or safe-handling behavior under risky inputs)
+* efficiency evals (runtime latency, error rate, and cost/token budget adherence)
+
+Rubric-scored dimensions must define:
+
+* judge method (`human`, `model-judge`, or `hybrid`)
+* rubric scale and pass threshold
+* tie-break or escalation path when rubric scores are ambiguous
+* persisted score rationale to support auditability
+
+### Acceptance Criteria
+
+* The repository includes a documented eval spec and fixture set for MVP scenarios.
+* Running the eval command produces a machine-readable results artifact and a human-readable summary.
+* Any failing eval clearly identifies scenario, expected behavior, and observed mismatch.
+* MVP demo readiness requires all must-pass eval cases to pass.
+* Eval outputs include run configuration, run count, aggregate pass rates, and variance notes for probabilistic scenarios.
+* Eval outputs include baseline comparison and an explicit regression verdict.
+* Eval outputs include latency/error/cost budget checks with pass/fail status.
+* Rubric-scored outputs include judge type, score, threshold, and rationale.
+
 ## UX Requirements
 
 The main experience should be a **structured trace**, not a token waterfall.
