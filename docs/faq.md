@@ -6,6 +6,14 @@ A daemon is a background process that runs continuously to provide a service, us
 
 In this project context, an agent server running in the background could be considered a daemon if it stays alive and coordinates tasks over time.
 
+## What is the difference between pull-based and push-based agent coordination?
+
+In pull-based coordination, agents ask a coordinator (or queue) for work when they are ready. The worker controls pacing, which can simplify backpressure and make scaling straightforward, but it may add polling overhead or small pickup delays.
+
+In push-based coordination, the coordinator proactively sends work or control messages to agents over a live channel. This can reduce assignment latency and improve realtime responsiveness, but it requires stronger connection management, flow control, and failure handling (for example, reconnects and half-open detection).
+
+In practice, many systems use a hybrid model: pull for durable task acquisition and push streams for low-latency updates, cancellations, and progress signals.
+
 ## What are "half-open connections"?
 
 A half-open connection is a connection where one side believes the connection is still active, but the other side has already dropped or lost it (for example, after a crash, network interruption, or silent timeout).
