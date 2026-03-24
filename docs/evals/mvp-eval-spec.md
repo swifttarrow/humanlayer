@@ -45,6 +45,7 @@ npm run eval:mvp -- --baseline
 | stop | ✓ | Stop semantics broken — data integrity risk |
 | safety | ✓ | Validation not enforced — security/reliability risk |
 | workdir | ✓ | Working directory policy not enforced — security risk |
+| exploration | ✓ | Phase/budget semantics broken — incorrect terminal outcomes |
 | efficiency | — | Latency regression — advisory only |
 
 All must-pass scenarios must be green to exit 0. Efficiency failures are warnings only.
@@ -130,6 +131,22 @@ All must-pass scenarios must be green to exit 0. Efficiency failures are warning
 **WD-03 fixture**: `POST /sessions { goal: "invalid", workingDirectory: "/nonexistent/path" }` → expect HTTP 422 with `WORKDIR_NOT_FOUND` or `WORKDIR_NOT_ALLOWED` reason code
 
 **WD-04 fixture**: if `PARITY_SERVER_URL` is set, submit a small set of identical `workingDirectory` values to both servers and compare allow/deny outcomes. Expected result: outcomes match for each sampled path. If `PARITY_SERVER_URL` is unset, scenario is skipped and marked advisory pass.
+
+---
+
+### Exploration Budget / Phase Semantics
+
+| ID | Name | Must-Pass | Judge |
+|---|---|---|---|
+| EX-01 | Blocked status accepted as terminal session state | ✓ | deterministic |
+| EX-02 | Retry allowed from blocked session status | ✓ | deterministic |
+| EX-03 | Phase transition events have machine-readable payloads | ✓ | deterministic |
+
+**EX-01 fixture**: Create session → verify `blocked` is a valid terminal status in the system. Acceptance checks mapped to requirement criteria 1 (exploration exhaustion never reported as success).
+
+**EX-02 fixture**: Verify `retrySession` accepts `blocked` as a valid starting state for retry. Maps to requirement criteria 2 (blocked sessions are retryable).
+
+**EX-03 fixture**: Verify `phase.transition`, `exploration.budget_exhausted`, and `edit_readiness.hypothesis` are valid `SessionEventType` values with structured payloads. Maps to requirement criteria 3-8 (phase observability, budget enforcement, hypothesis tracking).
 
 ---
 

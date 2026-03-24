@@ -4,9 +4,9 @@
 Require a concrete edit hypothesis before repeated deep reads and track why further context is needed.
 
 ## Deliverables
-- [ ] Structured hypothesis fields (candidate file, planned change, uncertainty reason) emitted in events
-- [ ] Deep/repeated read gating tied to concrete uncertainty categories
-- [ ] Tests covering transitions from exploring to editing or blocked
+- [x] Structured hypothesis fields (candidate file, planned change, uncertainty reason) emitted in events
+- [x] Deep/repeated read gating tied to concrete uncertainty categories
+- [x] Tests covering transitions from exploring to editing or blocked
 
 ## Notes
 Use small, machine-readable payloads so UI and evals can consume phase intent without brittle parsing.

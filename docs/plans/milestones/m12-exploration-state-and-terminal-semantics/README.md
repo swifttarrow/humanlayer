@@ -15,8 +15,8 @@ Add explicit phase and terminal semantics so exploration exhaustion is never rep
 ## Success Criteria
 
 ### Automated Verification
-- [ ] `npm run test --workspace=packages/shared`
-- [ ] `npm run test --workspace=apps/server`
+- [x] `npm run test --workspace=packages/shared`
+- [x] `npm run test --workspace=apps/server`
 
 ### Manual Verification
 - [ ] Session terminal outcomes can distinguish `completed` vs `blocked`

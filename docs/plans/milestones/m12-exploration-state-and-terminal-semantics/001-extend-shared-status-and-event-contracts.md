@@ -4,9 +4,9 @@
 Define shared lifecycle primitives for exploration/edit/validation phases and insufficient-context terminal outcomes.
 
 ## Deliverables
-- [ ] `SessionStatus` includes `blocked` in `packages/shared/src/contracts.ts`
-- [ ] `SessionEventType` includes phase and insufficient-context event types needed for observability
-- [ ] Contract comments document required terminal summary payload fields
+- [x] `SessionStatus` includes `blocked` in `packages/shared/src/contracts.ts`
+- [x] `SessionEventType` includes phase and insufficient-context event types needed for observability
+- [x] Contract comments document required terminal summary payload fields
 
 ## Notes
 Prefer additive contracts and backward-compatible parsing in consumers to reduce rollout risk.

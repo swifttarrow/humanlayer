@@ -4,9 +4,9 @@
 Update server-side projection logic so new phase and blocked terminal events produce accurate `session` and `session_state` records.
 
 ## Deliverables
-- [ ] `apps/server/src/services/eventIngestService.ts` handles blocked terminal mapping
-- [ ] `apps/server/src/services/sessionService.ts` allows retry semantics from blocked sessions
-- [ ] Tests cover blocked terminal transitions and phase updates in derived state
+- [x] `apps/server/src/services/eventIngestService.ts` handles blocked terminal mapping
+- [x] `apps/server/src/services/sessionService.ts` allows retry semantics from blocked sessions
+- [x] Tests cover blocked terminal transitions and phase updates in derived state
 
 ## Notes
 Keep terminal mapping idempotent and consistent with existing append-only event ingest guarantees.

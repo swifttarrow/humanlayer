@@ -15,8 +15,8 @@ Add lower-cost read tools, reinforce write-then-validate iteration, and surface 
 ## Success Criteria
 
 ### Automated Verification
-- [ ] `npm run test --workspace=apps/agent`
-- [ ] `npm run test --workspace=apps/ui`
+- [x] `npm run test --workspace=apps/agent`
+- [x] `npm run test --workspace=apps/ui`
 - [ ] `npm run eval:mvp`
 
 ### Manual Verification

@@ -4,9 +4,9 @@
 Introduce bounded file-read capabilities so the agent can inspect targeted sections before requesting full file content.
 
 ## Deliverables
-- [ ] `apps/agent/src/tools/fileTools.ts` supports line-range reads with safe limits
-- [ ] `apps/agent/src/runner/stepLoop.ts` exposes and handles range-read tool calls
-- [ ] Tests cover range-read boundaries and fallback behavior
+- [x] `apps/agent/src/tools/fileTools.ts` supports line-range reads with safe limits
+- [x] `apps/agent/src/runner/stepLoop.ts` exposes and handles range-read tool calls
+- [x] Tests cover range-read boundaries and fallback behavior
 
 ## Notes
 Keep full-file read support for compatibility, but bias prompt/runtime guidance toward cheap discovery first.

@@ -17,9 +17,9 @@
 | 9 | [m9-agent-local-boundary-enforcement](./m9-agent-local-boundary-enforcement/) | Complete (pending manual verification) |
 | 10 | [m10-docker-surfaces-runtime-isolation](./m10-docker-surfaces-runtime-isolation/) | Complete (pending manual verification) |
 | 11 | [m11-observability-evals-rollout-safety](./m11-observability-evals-rollout-safety/) | Complete (pending manual verification) |
-| 12 | [m12-exploration-state-and-terminal-semantics](./m12-exploration-state-and-terminal-semantics/) | Pending |
-| 13 | [m13-runtime-exploration-budget-and-readiness-gate](./m13-runtime-exploration-budget-and-readiness-gate/) | Pending |
-| 14 | [m14-tooling-ladder-write-validate-and-observability](./m14-tooling-ladder-write-validate-and-observability/) | Pending |
+| 12 | [m12-exploration-state-and-terminal-semantics](./m12-exploration-state-and-terminal-semantics/) | Complete (pending manual verification) |
+| 13 | [m13-runtime-exploration-budget-and-readiness-gate](./m13-runtime-exploration-budget-and-readiness-gate/) | Complete (pending manual verification) |
+| 14 | [m14-tooling-ladder-write-validate-and-observability](./m14-tooling-ladder-write-validate-and-observability/) | Complete (pending manual verification) |
 
 ## Quick Links
 - [Plan](../mvp.md)

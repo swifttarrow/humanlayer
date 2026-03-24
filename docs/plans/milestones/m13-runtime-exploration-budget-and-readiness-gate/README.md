@@ -15,8 +15,8 @@ Enforce bounded exploration with explicit readiness criteria before deep reads, 
 ## Success Criteria
 
 ### Automated Verification
-- [ ] `npm run test --workspace=apps/agent`
-- [ ] `npm run typecheck --workspace=apps/agent`
+- [x] `npm run test --workspace=apps/agent`
+- [x] `npm run typecheck --workspace=apps/agent`
 
 ### Manual Verification
 - [ ] Long read/search-only sessions transition to patch/escalate instead of silent completion
