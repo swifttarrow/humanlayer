@@ -7,6 +7,7 @@ import os from "os";
 const mockHeartbeat = vi.hoisted(() => vi.fn());
 const mockIngestEvents = vi.hoisted(() => vi.fn());
 const mockListSessionEvents = vi.hoisted(() => vi.fn());
+const mockRunFileSearch = vi.hoisted(() => vi.fn());
 const mockRunFileRead = vi.hoisted(() => vi.fn());
 const mockRunShell = vi.hoisted(() => vi.fn());
 const mockRunPatch = vi.hoisted(() => vi.fn());
@@ -18,7 +19,7 @@ vi.mock("../api.js", () => ({
 }));
 
 vi.mock("../tools/fileTools.js", () => ({
-  runFileSearch: vi.fn().mockResolvedValue("file.ts"),
+  runFileSearch: mockRunFileSearch,
   runFileRead: mockRunFileRead,
 }));
 
@@ -87,6 +88,7 @@ describe("runStepLoop", () => {
     mockHeartbeat.mockResolvedValue({ leaseExpiresAt: new Date().toISOString(), stopRequested: false });
     mockIngestEvents.mockResolvedValue({ accepted: 1, duplicates: 0 });
     mockListSessionEvents.mockResolvedValue({ events: [] });
+    mockRunFileSearch.mockResolvedValue("file.ts");
     mockRunPatch.mockResolvedValue("Patched successfully.");
     vi.stubGlobal(
       "fetch",
@@ -330,6 +332,39 @@ describe("runStepLoop", () => {
     const result = await runStepLoop({ ...baseOpts, workdirPolicy: testPolicy });
     expect(result.outcome).toBe("completed");
     expect(mockRunFileRead).toHaveBeenCalledWith("src/main.ts", "/tmp/project");
+  });
+
+  it("resolves relative search_files paths against policy workdir", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: async () =>
+            JSON.stringify(
+              makeToolUseResponse("search_files", {
+                pattern: "SessionDetail",
+                type: "content",
+                path: "apps/ui",
+              })
+            ),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify(makeTextResponse("Done.")),
+        })
+    );
+
+    const result = await runStepLoop({ ...baseOpts, workdirPolicy: testPolicy });
+    expect(result.outcome).toBe("completed");
+    expect(mockRunFileSearch).toHaveBeenCalledWith(
+      "SessionDetail",
+      "content",
+      "/tmp/project/apps/ui"
+    );
   });
 
   it("denies apply_patch when path escapes writable root via symlinked parent", async () => {

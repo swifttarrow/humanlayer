@@ -649,7 +649,11 @@ async function executeTool(
   const defaultCwd = policy?.resolvedPath;
   switch (name) {
     case "search_files": {
-      const searchPath = getStringInput(input, "path") ?? defaultCwd;
+      const requestedSearchPath = getStringInput(input, "path");
+      const searchPath =
+        defaultCwd && requestedSearchPath && !path.isAbsolute(requestedSearchPath)
+          ? path.resolve(defaultCwd, requestedSearchPath)
+          : requestedSearchPath ?? defaultCwd;
       if (searchPath) assertReadablePath(searchPath, policy);
       return runFileSearch(
         getStringInput(input, "pattern") ?? "",
