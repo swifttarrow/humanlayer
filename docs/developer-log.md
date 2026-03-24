@@ -85,3 +85,12 @@ Use this format for new entries:
 **Impact:** Core control APIs, event ingestion, state projection, and streaming endpoints live in one server process for MVP, with decomposition deferred.  
 **Owner:** Agent (Codex) with developer approval
 
+## [2026-03-24] Workdir policy as server-validated metadata contract
+
+**Context:** The working-directory requirement needs consistent behavior across local and Docker runs without introducing disruptive schema churn.  
+**Options considered:** Add dedicated DB columns for workdir policy vs store a typed policy envelope in `Session.metadata`; columns improve queryability but increase migration scope and rollout complexity.  
+**Decision:** Validate/canonicalize workdir policy on server create-session and persist the normalized contract in `Session.metadata` for first implementation.  
+**Rationale:** This keeps diffs minimal, aligns with existing session metadata usage, and allows fast rollout while preserving a clear typed contract for later column migration if needed.  
+**Impact:** Server becomes source of truth for policy validation; agent enforces the returned policy at tool/runtime boundaries; Docker/local parity can be tested against one shared contract.  
+**Owner:** Agent (Codex) with developer confirmation
+
