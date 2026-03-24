@@ -1,11 +1,14 @@
 import { randomUUID } from "crypto";
 import { EventEmitter } from "./eventEmitter.js";
-import { heartbeat } from "../api.js";
+import { heartbeat, listSessionEvents } from "../api.js";
 import { runFileSearch, runFileRead } from "../tools/fileTools.js";
 import { runPatch } from "../tools/patchTool.js";
 import { runShell } from "../tools/shellTool.js";
 import type { WorkingDirectoryPolicy } from "@humanlayer/shared";
 import { assertReadablePath, assertWritablePath, assertExecutableCwd, PolicyDeniedError } from "../tools/workspacePolicy.js";
+
+// Keep step numbers monotonic across follow-up runs in the same session.
+const sessionStepCounts = new Map<string, number>();
 
 const MODEL = process.env.AGENT_MODEL ?? "gpt-4.1-mini";
 const MAX_STEPS = parseInt(process.env.MAX_STEPS ?? "20", 10);
@@ -163,11 +166,12 @@ export async function runStepLoop(opts: StepLoopOptions): Promise<StepLoopResult
 
   await emitter.flush();
 
-  let stepCount = 0;
+  let runStepCount = 0;
+  let stepCount = await getStartingStepCount(opts.sessionId);
   let summary = "";
 
   try {
-    while (stepCount < MAX_STEPS) {
+    while (runStepCount < MAX_STEPS) {
       // Check stop at each step boundary
       try {
         const hb = await heartbeat(opts.agentId, opts.attemptId, opts.sessionId);
@@ -179,7 +183,9 @@ export async function runStepLoop(opts: StepLoopOptions): Promise<StepLoopResult
         // If heartbeat fails, proceed — sweeper will handle expired leases
       }
 
+      runStepCount++;
       stepCount++;
+      sessionStepCounts.set(opts.sessionId, stepCount);
       const stepId = randomUUID();
       const correlationId = randomUUID();
 
@@ -295,6 +301,29 @@ export async function runStepLoop(opts: StepLoopOptions): Promise<StepLoopResult
       // best effort
     }
     return { outcome: "failed", error };
+  }
+}
+
+async function getStartingStepCount(sessionId: string): Promise<number> {
+  const inMemory = sessionStepCounts.get(sessionId);
+  if (typeof inMemory === "number") {
+    return inMemory;
+  }
+
+  // After process restarts, recover monotonic numbering from persisted history.
+  try {
+    const { events } = await listSessionEvents(sessionId);
+    const maxPersistedStep = events.reduce((max, event) => {
+      if (event.eventType !== "step.started") return max;
+      const rawStep = event.payload.stepNumber;
+      const stepNumber = typeof rawStep === "number" ? rawStep : Number(rawStep);
+      return Number.isFinite(stepNumber) ? Math.max(max, stepNumber) : max;
+    }, 0);
+    sessionStepCounts.set(sessionId, maxPersistedStep);
+    return maxPersistedStep;
+  } catch {
+    // Best-effort fallback: continue from zero if history cannot be fetched.
+    return 0;
   }
 }
 

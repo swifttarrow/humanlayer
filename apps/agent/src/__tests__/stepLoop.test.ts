@@ -6,6 +6,7 @@ import os from "os";
 // Hoist mocks so they're available before module imports
 const mockHeartbeat = vi.hoisted(() => vi.fn());
 const mockIngestEvents = vi.hoisted(() => vi.fn());
+const mockListSessionEvents = vi.hoisted(() => vi.fn());
 const mockRunFileRead = vi.hoisted(() => vi.fn());
 const mockRunShell = vi.hoisted(() => vi.fn());
 const mockRunPatch = vi.hoisted(() => vi.fn());
@@ -13,6 +14,7 @@ const mockRunPatch = vi.hoisted(() => vi.fn());
 vi.mock("../api.js", () => ({
   heartbeat: mockHeartbeat,
   ingestEvents: mockIngestEvents,
+  listSessionEvents: mockListSessionEvents,
 }));
 
 vi.mock("../tools/fileTools.js", () => ({
@@ -81,6 +83,7 @@ describe("runStepLoop", () => {
     vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
     mockHeartbeat.mockResolvedValue({ leaseExpiresAt: new Date().toISOString(), stopRequested: false });
     mockIngestEvents.mockResolvedValue({ accepted: 1, duplicates: 0 });
+    mockListSessionEvents.mockResolvedValue({ events: [] });
     mockRunPatch.mockResolvedValue("Patched successfully.");
     vi.stubGlobal(
       "fetch",
@@ -96,6 +99,68 @@ describe("runStepLoop", () => {
     const result = await runStepLoop(baseOpts);
     expect(result.outcome).toBe("completed");
     expect(mockIngestEvents).toHaveBeenCalled();
+  });
+
+  it("continues step numbers across follow-up runs in the same session", async () => {
+    const firstAttempt = { ...baseOpts, sessionId: "sess-followup", attemptId: "att-1a" };
+    const secondAttempt = { ...baseOpts, sessionId: "sess-followup", attemptId: "att-1b" };
+
+    const firstResult = await runStepLoop(firstAttempt);
+    const secondResult = await runStepLoop(secondAttempt);
+
+    expect(firstResult.outcome).toBe("completed");
+    expect(secondResult.outcome).toBe("completed");
+
+    const stepStartedEvents = mockIngestEvents.mock.calls
+      .flatMap((call) => call[2] as Array<{ eventType: string; payload: Record<string, unknown> }>)
+      .filter((event) => event.eventType === "step.started")
+      .map((event) => event.payload.stepNumber);
+
+    expect(stepStartedEvents).toEqual(expect.arrayContaining([1, 2]));
+  });
+
+  it("hydrates step number from persisted events when memory cache is empty", async () => {
+    mockListSessionEvents.mockResolvedValue({
+      events: [
+        {
+          id: "evt-1",
+          sessionId: "sess-restart",
+          attemptId: "att-prev",
+          sequenceNumber: 1,
+          eventType: "session.started",
+          eventTime: new Date().toISOString(),
+          actorType: "agent",
+          payload: {},
+          isTerminal: false,
+          visibility: "user_visible",
+          schemaVersion: "1.0",
+        },
+        {
+          id: "evt-2",
+          sessionId: "sess-restart",
+          attemptId: "att-prev",
+          sequenceNumber: 2,
+          eventType: "step.started",
+          eventTime: new Date().toISOString(),
+          actorType: "agent",
+          payload: { stepNumber: 5 },
+          isTerminal: false,
+          visibility: "user_visible",
+          schemaVersion: "1.0",
+        },
+      ],
+    });
+
+    const result = await runStepLoop({ ...baseOpts, sessionId: "sess-restart", attemptId: "att-new" });
+    expect(result.outcome).toBe("completed");
+
+    const stepStartedEvents = mockIngestEvents.mock.calls
+      .flatMap((call) => call[2] as Array<{ eventType: string; payload: Record<string, unknown> }>)
+      .filter((event) => event.eventType === "step.started")
+      .map((event) => event.payload.stepNumber);
+
+    expect(stepStartedEvents).toContain(6);
+    expect(mockListSessionEvents).toHaveBeenCalledWith("sess-restart");
   });
 
   it("emits session.stopped when stop is requested on first heartbeat", async () => {

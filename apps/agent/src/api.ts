@@ -7,6 +7,7 @@ import type {
   AgentHeartbeatResponse,
   IngestEventsRequest,
   IngestEventsResponse,
+  ListEventsResponse,
   SessionEvent,
 } from "@humanlayer/shared";
 
@@ -40,6 +41,27 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   throw new Error(`POST ${path} failed after ${API_RETRY_ATTEMPTS} attempts`);
 }
 
+async function get<T>(path: string): Promise<T> {
+  let attempt = 0;
+  while (attempt < API_RETRY_ATTEMPTS) {
+    attempt++;
+    try {
+      const res = await fetch(`${SERVER_URL}${path}`);
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`GET ${path} failed ${res.status}: ${text}`);
+      }
+      return res.json() as Promise<T>;
+    } catch (err) {
+      if (!isTransientNetworkError(err) || attempt >= API_RETRY_ATTEMPTS) {
+        throw err;
+      }
+      await sleep(API_RETRY_BASE_DELAY_MS * attempt);
+    }
+  }
+  throw new Error(`GET ${path} failed after ${API_RETRY_ATTEMPTS} attempts`);
+}
+
 export async function pullSession(agentId: string): Promise<AgentPullResponse | null> {
   const result = await post<AgentPullResponse | null>(`/agents/${agentId}/pull`, {});
   return result ?? null;
@@ -63,6 +85,10 @@ export async function ingestEvents(
 ): Promise<IngestEventsResponse> {
   const body: IngestEventsRequest = { attemptId, events };
   return post<IngestEventsResponse>(`/sessions/${sessionId}/events`, body);
+}
+
+export async function listSessionEvents(sessionId: string): Promise<ListEventsResponse> {
+  return get<ListEventsResponse>(`/sessions/${sessionId}/events`);
 }
 
 function isTransientNetworkError(err: unknown): boolean {
