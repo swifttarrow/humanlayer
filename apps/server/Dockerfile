@@ -1,5 +1,6 @@
-FROM node:20-alpine AS base
+FROM node:20-bookworm-slim AS base
 WORKDIR /app
+RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 
 # Copy root workspace manifests
 COPY package.json package-lock.json ./
@@ -14,16 +15,17 @@ RUN npm ci --ignore-scripts
 COPY packages/shared ./packages/shared
 COPY apps/server ./apps/server
 
+# Generate Prisma client
+RUN cd apps/server && npx prisma generate
+
 # Build shared and server
 RUN npm run build --workspace=packages/shared
 RUN npm run build --workspace=apps/server
 
-# Generate Prisma client
-RUN cd apps/server && npx prisma generate
-
 # ---- Runtime ----
-FROM node:20-alpine AS runtime
+FROM node:20-bookworm-slim AS runtime
 WORKDIR /app
+RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 
 COPY --from=base /app/node_modules ./node_modules
 COPY --from=base /app/packages/shared/dist ./packages/shared/dist
@@ -37,4 +39,4 @@ WORKDIR /app/apps/server
 ENV NODE_ENV=production
 EXPOSE 3000
 
-CMD ["node", "dist/index.js"]
+CMD ["node", "dist/apps/server/src/index.js"]

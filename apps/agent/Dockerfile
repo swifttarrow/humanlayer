@@ -29,4 +29,4 @@ WORKDIR /app/apps/agent
 ENV NODE_ENV=production
 # No EXPOSE — agent is outbound-only, no inbound ports
 
-CMD ["node", "dist/main.js"]
+CMD ["node", "dist/apps/agent/src/main.js"]

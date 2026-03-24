@@ -1,8 +1,15 @@
 import { readFile } from "fs/promises";
-import { glob } from "glob";
+import * as globModule from "glob";
 import { createReadStream } from "fs";
 import { createInterface } from "readline";
 import path from "path";
+
+const glob = (
+  (globModule as unknown as { glob?: unknown }).glob ??
+  (globModule as unknown as { default?: { glob?: unknown } }).default?.glob ??
+  (globModule as unknown as { default?: unknown }).default ??
+  globModule
+) as typeof import("glob").glob;
 
 /**
  * Search files by glob pattern or content string.

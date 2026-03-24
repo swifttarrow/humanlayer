@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   db:
     image: postgres:16-alpine
@@ -14,9 +12,6 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-    ports:
-      - "5432:5432"
-
   server:
     build:
       context: .
@@ -30,10 +25,8 @@ services:
       LEASE_DURATION_SECONDS: 60
       LEASE_SWEEP_INTERVAL_MS: 30000
       NODE_ENV: production
-    ports:
-      - "3000:3000"
     command: >
-      sh -c "cd apps/server && npx prisma migrate deploy && node dist/index.js"
+      sh -c "npx prisma migrate deploy && node dist/apps/server/src/index.js"
     restart: unless-stopped
 
   agent:
