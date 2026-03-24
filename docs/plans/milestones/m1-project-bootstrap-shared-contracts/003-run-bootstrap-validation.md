@@ -4,8 +4,8 @@
 Verify the baseline workspace and shared contract setup are healthy before lifecycle implementation begins.
 
 ## Deliverables
-- [ ] `npm install` succeeds
-- [ ] `npm run typecheck` and `npm run lint` pass from workspace root
+- [x] `npm install` succeeds
+- [x] `npm run typecheck` and `npm run lint` pass from workspace root
 - [ ] Manual check confirms shared status/event types are imported in all apps
 
 ## Notes

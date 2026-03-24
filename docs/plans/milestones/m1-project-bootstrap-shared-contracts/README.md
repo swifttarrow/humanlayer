@@ -16,9 +16,9 @@ Create the monorepo skeleton, baseline tooling, and shared types/status enums so
 ## Success Criteria
 
 ### Automated Verification
-- [ ] `npm install`
-- [ ] `npm run typecheck`
-- [ ] `npm run lint`
+- [x] `npm install`
+- [x] `npm run typecheck`
+- [x] `npm run lint`
 
 ### Manual Verification
 - [ ] Workspace builds with no missing references

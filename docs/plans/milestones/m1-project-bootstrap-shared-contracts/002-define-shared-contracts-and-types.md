@@ -4,8 +4,8 @@
 Establish the shared lifecycle, event, and API DTO contract types consumed across all applications.
 
 ## Deliverables
-- [ ] `packages/shared/src/contracts.ts` defines status enums, event types, and DTO interfaces
-- [ ] Server, agent, and UI import the shared types instead of local duplicates
+- [x] `packages/shared/src/contracts.ts` defines status enums, event types, and DTO interfaces
+- [x] Server, agent, and UI import the shared types instead of local duplicates
 
 ## Notes
 Keep contract definitions aligned with the PRD lifecycle semantics and event model documented in the MVP plan.
