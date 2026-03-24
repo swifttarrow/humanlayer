@@ -19,7 +19,7 @@ A real-time session management platform for human-in-the-loop AI agents. Agents 
 **Packages:**
 - `packages/shared` — TypeScript contracts (DTOs, status unions)
 - `apps/server` — Express API + Prisma/PostgreSQL + SSE stream
-- `apps/agent` — Autonomous agent daemon with Anthropic step loop
+- `apps/agent` — Autonomous agent daemon with OpenAI step loop
 - `apps/ui` — React SPA (session list, detail, live trace)
 
 ## Quick Start
@@ -49,8 +49,8 @@ npm run dev
 ### Docker (all-in-one)
 
 ```bash
-# Requires ANTHROPIC_API_KEY in environment
-export ANTHROPIC_API_KEY=sk-ant-...
+# Requires OPENAI_API_KEY in environment
+export OPENAI_API_KEY=sk-...
 
 docker compose up --build
 ```
@@ -116,7 +116,7 @@ See [docs/evals/mvp-eval-spec.md](docs/evals/mvp-eval-spec.md) for full scenario
 |---|---|---|
 | `SERVER_URL` | `http://localhost:3000` | Server base URL |
 | `AGENT_ID` | `default-agent` | Unique agent identifier |
-| `ANTHROPIC_API_KEY` | — | Anthropic API key |
-| `AGENT_MODEL` | `claude-haiku-4-5-20251001` | Claude model to use |
+| `OPENAI_API_KEY` | — | OpenAI API key |
+| `AGENT_MODEL` | `gpt-4.1-mini` | OpenAI model to use |
 | `POLL_INTERVAL_MS` | `5000` | Session pull poll interval |
 | `HEARTBEAT_INTERVAL_MS` | `15000` | Lease heartbeat interval |

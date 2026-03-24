@@ -1,4 +1,3 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { randomUUID } from "crypto";
 import { EventEmitter } from "./eventEmitter.js";
 import { heartbeat } from "../api.js";
@@ -6,62 +5,97 @@ import { runFileSearch, runFileRead } from "../tools/fileTools.js";
 import { runPatch } from "../tools/patchTool.js";
 import { runShell } from "../tools/shellTool.js";
 
-const MODEL = process.env.AGENT_MODEL ?? "claude-haiku-4-5-20251001";
+const MODEL = process.env.AGENT_MODEL ?? "gpt-4.1-mini";
 const MAX_STEPS = parseInt(process.env.MAX_STEPS ?? "20", 10);
 const HEARTBEAT_INTERVAL_MS = parseInt(
   process.env.HEARTBEAT_INTERVAL_MS ?? "15000",
   10
 );
 
-const client = new Anthropic();
+interface OpenAIToolDefinition {
+  type: "function";
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  };
+}
 
-const TOOLS: Anthropic.Tool[] = [
+interface OpenAIToolCall {
+  id: string;
+  type: "function";
+  function: {
+    name: string;
+    arguments: string;
+  };
+}
+
+interface OpenAIMessage {
+  role: "system" | "user" | "assistant" | "tool";
+  content?: string | null;
+  tool_calls?: OpenAIToolCall[];
+  tool_call_id?: string;
+}
+
+const TOOLS: OpenAIToolDefinition[] = [
   {
-    name: "search_files",
-    description: "Search for files matching a glob pattern or containing a string",
-    input_schema: {
-      type: "object",
-      properties: {
-        pattern: { type: "string", description: "Glob pattern or search string" },
-        type: { type: "string", enum: ["glob", "content"], description: "Search type" },
-        path: { type: "string", description: "Directory to search (default: cwd)" },
+    type: "function",
+    function: {
+      name: "search_files",
+      description: "Search for files matching a glob pattern or containing a string",
+      parameters: {
+        type: "object",
+        properties: {
+          pattern: { type: "string", description: "Glob pattern or search string" },
+          type: { type: "string", enum: ["glob", "content"], description: "Search type" },
+          path: { type: "string", description: "Directory to search (default: cwd)" },
+        },
+        required: ["pattern", "type"],
       },
-      required: ["pattern", "type"],
     },
   },
   {
-    name: "read_file",
-    description: "Read the contents of a file",
-    input_schema: {
-      type: "object",
-      properties: {
-        path: { type: "string", description: "File path to read" },
+    type: "function",
+    function: {
+      name: "read_file",
+      description: "Read the contents of a file",
+      parameters: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "File path to read" },
+        },
+        required: ["path"],
       },
-      required: ["path"],
     },
   },
   {
-    name: "apply_patch",
-    description: "Apply a unified diff patch to a file",
-    input_schema: {
-      type: "object",
-      properties: {
-        path: { type: "string", description: "Target file path" },
-        patch: { type: "string", description: "Unified diff content" },
+    type: "function",
+    function: {
+      name: "apply_patch",
+      description: "Apply a unified diff patch to a file",
+      parameters: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "Target file path" },
+          patch: { type: "string", description: "Unified diff content" },
+        },
+        required: ["path", "patch"],
       },
-      required: ["path", "patch"],
     },
   },
   {
-    name: "run_shell",
-    description: "Run a shell command (non-interactive). Use for tests, builds, etc.",
-    input_schema: {
-      type: "object",
-      properties: {
-        command: { type: "string", description: "Shell command to execute" },
-        cwd: { type: "string", description: "Working directory (default: cwd)" },
+    type: "function",
+    function: {
+      name: "run_shell",
+      description: "Run a shell command (non-interactive). Use for tests, builds, etc.",
+      parameters: {
+        type: "object",
+        properties: {
+          command: { type: "string", description: "Shell command to execute" },
+          cwd: { type: "string", description: "Working directory (default: cwd)" },
+        },
+        required: ["command"],
       },
-      required: ["command"],
     },
   },
 ];
@@ -96,10 +130,15 @@ export async function runStepLoop(opts: StepLoopOptions): Promise<StepLoopResult
 
   let stopRequested = false;
 
-  const messages: Anthropic.MessageParam[] = [
+  const messages: OpenAIMessage[] = [
+    {
+      role: "system",
+      content:
+        "You are a coding agent. Complete tasks step by step using tools. Search and read relevant files before making edits. Validate changes after applying them.",
+    },
     {
       role: "user",
-      content: `You are a coding agent. Complete the following task step by step, using the provided tools.\n\nTask: ${opts.goal}\n\nBe methodical: search and read relevant files before making changes. Validate changes after applying them.`,
+      content: `Task: ${opts.goal}`,
     },
   ];
 
@@ -133,36 +172,26 @@ export async function runStepLoop(opts: StepLoopOptions): Promise<StepLoopResult
       );
       await emitter.flush();
 
-      // Call Claude
-      const response = await client.messages.create({
-        model: MODEL,
-        max_tokens: 4096,
-        tools: TOOLS,
-        messages,
+      const response = await callOpenAI(messages);
+      const assistantContent = response.content ?? "";
+      const toolCalls = response.tool_calls ?? [];
+
+      messages.push({
+        role: "assistant",
+        content: assistantContent,
+        ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
       });
 
-      // Add assistant response to history
-      messages.push({ role: "assistant", content: response.content });
-
-      const toolUseBlocks = response.content.filter(
-        (b): b is Anthropic.ToolUseBlock => b.type === "tool_use"
-      );
-      const textBlocks = response.content.filter(
-        (b): b is Anthropic.TextBlock => b.type === "text"
-      );
-
-      if (textBlocks.length > 0) {
-        const text = textBlocks.map((b) => b.text).join("\n");
+      if (assistantContent.trim().length > 0) {
         emitter.emit(
           "message.completed",
-          { text, stepNumber: stepCount },
+          { text: assistantContent, stepNumber: stepCount },
           { stepId, correlationId }
         );
-        summary = text;
+        summary = assistantContent;
       }
 
-      // If no tool use and stop_reason is end_turn, we're done
-      if (toolUseBlocks.length === 0 && response.stop_reason === "end_turn") {
+      if (toolCalls.length === 0) {
         emitter.emit(
           "step.completed",
           { stepNumber: stepCount, terminal: true },
@@ -173,12 +202,11 @@ export async function runStepLoop(opts: StepLoopOptions): Promise<StepLoopResult
       }
 
       // Execute tools
-      const toolResults: Anthropic.ToolResultBlockParam[] = [];
-
-      for (const toolUse of toolUseBlocks) {
+      for (const toolUse of toolCalls) {
+        const parsedInput = parseToolInput(toolUse.function.arguments);
         const toolEventId = emitter.emit(
           "tool.started",
-          { toolName: toolUse.name, toolUseId: toolUse.id, input: toolUse.input },
+          { toolName: toolUse.function.name, toolUseId: toolUse.id, input: parsedInput },
           { stepId, correlationId, actorType: "tool" }
         );
 
@@ -186,7 +214,7 @@ export async function runStepLoop(opts: StepLoopOptions): Promise<StepLoopResult
         let isError = false;
 
         try {
-          result = await executeTool(toolUse.name, toolUse.input as Record<string, string>);
+          result = await executeTool(toolUse.function.name, parsedInput);
         } catch (err) {
           result = `Error: ${String(err)}`;
           isError = true;
@@ -195,7 +223,7 @@ export async function runStepLoop(opts: StepLoopOptions): Promise<StepLoopResult
         emitter.emit(
           isError ? "tool.failed" : "tool.completed",
           {
-            toolName: toolUse.name,
+            toolName: toolUse.function.name,
             toolUseId: toolUse.id,
             result: result.slice(0, 2000),
             parentEventId: toolEventId,
@@ -203,17 +231,11 @@ export async function runStepLoop(opts: StepLoopOptions): Promise<StepLoopResult
           { stepId, correlationId, actorType: "tool" }
         );
 
-        toolResults.push({
-          type: "tool_result",
-          tool_use_id: toolUse.id,
-          content: result,
-          is_error: isError,
+        messages.push({
+          role: "tool",
+          tool_call_id: toolUse.id,
+          content: isError ? `Error: ${result}` : result,
         });
-      }
-
-      // Add tool results to message history
-      if (toolResults.length > 0) {
-        messages.push({ role: "user", content: toolResults });
       }
 
       emitter.emit(
@@ -248,16 +270,72 @@ export async function runStepLoop(opts: StepLoopOptions): Promise<StepLoopResult
   }
 }
 
-async function executeTool(name: string, input: Record<string, string>): Promise<string> {
+async function callOpenAI(messages: OpenAIMessage[]): Promise<{
+  content?: string | null;
+  tool_calls?: OpenAIToolCall[];
+}> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error("OPENAI_API_KEY is required for agent step loop");
+  }
+
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      messages,
+      tools: TOOLS,
+      tool_choice: "auto",
+      temperature: 0,
+    }),
+  });
+
+  const raw = await res.text();
+  if (!res.ok) {
+    throw new Error(`OpenAI chat.completions failed ${res.status}: ${raw}`);
+  }
+
+  const json = JSON.parse(raw) as {
+    choices?: Array<{ message?: { content?: string | null; tool_calls?: OpenAIToolCall[] } }>;
+  };
+  const message = json.choices?.[0]?.message;
+  if (!message) {
+    throw new Error("OpenAI response missing choices[0].message");
+  }
+  return message;
+}
+
+function parseToolInput(argumentsJson: string): Record<string, unknown> {
+  try {
+    return JSON.parse(argumentsJson) as Record<string, unknown>;
+  } catch (err) {
+    throw new Error(`Invalid tool arguments JSON: ${String(err)}`);
+  }
+}
+
+function getStringInput(input: Record<string, unknown>, key: string): string | undefined {
+  const value = input[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+async function executeTool(name: string, input: Record<string, unknown>): Promise<string> {
   switch (name) {
     case "search_files":
-      return runFileSearch(input.pattern, input.type as "glob" | "content", input.path);
+      return runFileSearch(
+        getStringInput(input, "pattern") ?? "",
+        (getStringInput(input, "type") as "glob" | "content") ?? "content",
+        getStringInput(input, "path")
+      );
     case "read_file":
-      return runFileRead(input.path);
+      return runFileRead(getStringInput(input, "path") ?? "");
     case "apply_patch":
-      return runPatch(input.path, input.patch);
+      return runPatch(getStringInput(input, "path") ?? "", getStringInput(input, "patch") ?? "");
     case "run_shell":
-      return runShell(input.command, input.cwd);
+      return runShell(getStringInput(input, "command") ?? "", getStringInput(input, "cwd"));
     default:
       throw new Error(`Unknown tool: ${name}`);
   }

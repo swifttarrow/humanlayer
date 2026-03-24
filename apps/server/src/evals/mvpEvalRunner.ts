@@ -20,7 +20,7 @@ const EVAL_DIR = path.resolve(__dirname, "../../../../../docs/evals");
 const SERVER_URL = process.env.SERVER_URL ?? "http://localhost:3000";
 const EVAL_SPEC_VERSION = "1.0";
 const MODEL_CONFIG = {
-  model: process.env.AGENT_MODEL ?? "claude-haiku-4-5-20251001",
+  model: process.env.AGENT_MODEL ?? "gpt-4.1-mini",
   runCount: 1,
   passRateThreshold: 1.0,
 };
