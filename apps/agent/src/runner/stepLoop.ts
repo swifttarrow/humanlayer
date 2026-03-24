@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import path from "path";
 import { EventEmitter } from "./eventEmitter.js";
 import { heartbeat, listSessionEvents } from "../api.js";
 import { runFileSearch, runFileRead } from "../tools/fileTools.js";
@@ -12,6 +13,10 @@ const sessionStepCounts = new Map<string, number>();
 
 const MODEL = process.env.AGENT_MODEL ?? "gpt-4.1-mini";
 const MAX_STEPS = parseInt(process.env.MAX_STEPS ?? "20", 10);
+const MAX_THINKING_TOKENS_PER_STEP = parseInt(
+  process.env.MAX_THINKING_TOKENS_PER_STEP ?? "300",
+  10
+);
 const HEARTBEAT_INTERVAL_MS = parseInt(
   process.env.HEARTBEAT_INTERVAL_MS ?? "15000",
   10
@@ -40,6 +45,25 @@ interface OpenAIMessage {
   content?: string | null;
   tool_calls?: OpenAIToolCall[];
   tool_call_id?: string;
+}
+
+interface StreamToolCallDelta {
+  index?: number;
+  id?: string;
+  type?: "function";
+  function?: {
+    name?: string;
+    arguments?: string;
+  };
+}
+
+interface ChatCompletionsChunk {
+  choices?: Array<{
+    delta?: {
+      content?: string | null;
+      tool_calls?: StreamToolCallDelta[];
+    };
+  }>;
 }
 
 const TOOLS: OpenAIToolDefinition[] = [
@@ -196,7 +220,15 @@ export async function runStepLoop(opts: StepLoopOptions): Promise<StepLoopResult
       );
       await emitter.flush();
 
-      const response = await callOpenAI(messages);
+      const thinkingTokenEmitter = createThinkingTokenEmitter(
+        emitter,
+        stepCount,
+        { stepId, correlationId }
+      );
+      const response = await callOpenAI(messages, (delta) => {
+        thinkingTokenEmitter.onDelta(delta);
+      });
+      thinkingTokenEmitter.flush();
       const assistantContent = response.content ?? "";
       const toolCalls = response.tool_calls ?? [];
 
@@ -327,7 +359,10 @@ async function getStartingStepCount(sessionId: string): Promise<number> {
   }
 }
 
-async function callOpenAI(messages: OpenAIMessage[]): Promise<{
+async function callOpenAI(
+  messages: OpenAIMessage[],
+  onTextDelta?: (delta: string) => void
+): Promise<{
   content?: string | null;
   tool_calls?: OpenAIToolCall[];
 }> {
@@ -335,35 +370,205 @@ async function callOpenAI(messages: OpenAIMessage[]): Promise<{
   if (!apiKey) {
     throw new Error("OPENAI_API_KEY is required for agent step loop");
   }
+  const maxRetries = getOpenAIMaxRetries();
+  const baseDelayMs = getOpenAIRetryBaseMs();
+  const maxDelayMs = getOpenAIRetryMaxMs();
 
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      messages,
-      tools: TOOLS,
-      tool_choice: "auto",
-      temperature: 0,
-    }),
-  });
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    let res: Response;
+    try {
+      res = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: MODEL,
+          messages,
+          tools: TOOLS,
+          tool_choice: "auto",
+          temperature: 0,
+          stream: true,
+        }),
+      });
+    } catch (err) {
+      const canRetry = attempt < maxRetries;
+      if (!canRetry) {
+        throw new Error(`OpenAI chat.completions request failed: ${String(err)}`);
+      }
+      const delayMs = computeRetryDelayMs(attempt, baseDelayMs, maxDelayMs);
+      console.warn(
+        `[agent] OpenAI retry ${attempt + 1}/${maxRetries} after request error: ${String(err)} (delay=${delayMs}ms)`
+      );
+      await sleep(delayMs);
+      continue;
+    }
 
-  const raw = await res.text();
-  if (!res.ok) {
-    throw new Error(`OpenAI chat.completions failed ${res.status}: ${raw}`);
+    if (!res.ok) {
+      const raw = await res.text();
+      const canRetry = shouldRetryStatusCode(res.status) && attempt < maxRetries;
+      if (!canRetry) {
+        throw new Error(`OpenAI chat.completions failed ${res.status}: ${raw}`);
+      }
+      const delayMs = getRetryAfterMs(res) ?? computeRetryDelayMs(attempt, baseDelayMs, maxDelayMs);
+      console.warn(
+        `[agent] OpenAI retry ${attempt + 1}/${maxRetries} after status ${res.status} (delay=${delayMs}ms)`
+      );
+      await sleep(delayMs);
+      continue;
+    }
+
+    if (res.body) {
+      return parseStreamingChatCompletion(res.body, onTextDelta);
+    }
+
+    // Test/mock fallback for non-streaming response objects.
+    const raw = await res.text();
+    const json = JSON.parse(raw) as {
+      choices?: Array<{ message?: { content?: string | null; tool_calls?: OpenAIToolCall[] } }>;
+    };
+    const message = json.choices?.[0]?.message;
+    if (!message) {
+      throw new Error("OpenAI response missing choices[0].message");
+    }
+    return message;
   }
 
-  const json = JSON.parse(raw) as {
-    choices?: Array<{ message?: { content?: string | null; tool_calls?: OpenAIToolCall[] } }>;
+  throw new Error("OpenAI chat.completions failed after exhausting retries");
+}
+
+function shouldRetryStatusCode(statusCode: number): boolean {
+  return statusCode === 429 || statusCode >= 500;
+}
+
+function computeRetryDelayMs(attempt: number, baseDelayMs: number, maxDelayMs: number): number {
+  const exponential = baseDelayMs * Math.pow(2, attempt);
+  return Math.min(exponential, maxDelayMs);
+}
+
+function getOpenAIMaxRetries(): number {
+  return parseInt(process.env.OPENAI_MAX_RETRIES ?? "3", 10);
+}
+
+function getOpenAIRetryBaseMs(): number {
+  return parseInt(process.env.OPENAI_RETRY_BASE_MS ?? "1000", 10);
+}
+
+function getOpenAIRetryMaxMs(): number {
+  return parseInt(process.env.OPENAI_RETRY_MAX_MS ?? "10000", 10);
+}
+
+function getRetryAfterMs(res: Response): number | undefined {
+  const retryAfter = res.headers?.get?.("retry-after");
+  if (!retryAfter) return undefined;
+  const seconds = Number(retryAfter);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.floor(seconds * 1000);
+  }
+  const dateMs = Date.parse(retryAfter);
+  if (!Number.isNaN(dateMs)) {
+    const delta = dateMs - Date.now();
+    return delta > 0 ? delta : 0;
+  }
+  return undefined;
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
+}
+
+async function parseStreamingChatCompletion(
+  body: ReadableStream<Uint8Array>,
+  onTextDelta?: (delta: string) => void
+): Promise<{ content?: string | null; tool_calls?: OpenAIToolCall[] }> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let content = "";
+  const toolCalls = new Map<number, OpenAIToolCall>();
+
+  function getOrCreateToolCall(index: number): OpenAIToolCall {
+    const existing = toolCalls.get(index);
+    if (existing) return existing;
+    const next: OpenAIToolCall = {
+      id: `stream-tool-${index}`,
+      type: "function",
+      function: { name: "", arguments: "" },
+    };
+    toolCalls.set(index, next);
+    return next;
+  }
+
+  function processLine(line: string) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("data:")) return;
+    const data = trimmed.slice(5).trim();
+    if (!data || data === "[DONE]") return;
+
+    let chunk: ChatCompletionsChunk;
+    try {
+      chunk = JSON.parse(data) as ChatCompletionsChunk;
+    } catch {
+      return;
+    }
+
+    const delta = chunk.choices?.[0]?.delta;
+    if (!delta) return;
+
+    if (typeof delta.content === "string" && delta.content.length > 0) {
+      content += delta.content;
+      onTextDelta?.(delta.content);
+    }
+
+    if (Array.isArray(delta.tool_calls)) {
+      for (const toolDelta of delta.tool_calls) {
+        const index = typeof toolDelta.index === "number" ? toolDelta.index : 0;
+        const toolCall = getOrCreateToolCall(index);
+        if (typeof toolDelta.id === "string" && toolDelta.id.length > 0) {
+          toolCall.id = toolDelta.id;
+        }
+        if (typeof toolDelta.function?.name === "string") {
+          toolCall.function.name += toolDelta.function.name;
+        }
+        if (typeof toolDelta.function?.arguments === "string") {
+          toolCall.function.arguments += toolDelta.function.arguments;
+        }
+      }
+    }
+  }
+
+  let streamDone = false;
+  while (!streamDone) {
+    const { done, value } = await reader.read();
+    if (done) {
+      streamDone = true;
+      continue;
+    }
+    buffer += decoder.decode(value, { stream: true });
+
+    let newlineIndex = buffer.indexOf("\n");
+    while (newlineIndex >= 0) {
+      const line = buffer.slice(0, newlineIndex);
+      buffer = buffer.slice(newlineIndex + 1);
+      processLine(line);
+      newlineIndex = buffer.indexOf("\n");
+    }
+  }
+
+  buffer += decoder.decode();
+  if (buffer.length > 0) {
+    for (const line of buffer.split("\n")) {
+      processLine(line);
+    }
+  }
+
+  return {
+    content,
+    tool_calls: [...toolCalls.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([, toolCall]) => toolCall),
   };
-  const message = json.choices?.[0]?.message;
-  if (!message) {
-    throw new Error("OpenAI response missing choices[0].message");
-  }
-  return message;
 }
 
 function parseToolInput(argumentsJson: string): Record<string, unknown> {
@@ -377,6 +582,63 @@ function parseToolInput(argumentsJson: string): Record<string, unknown> {
 function getStringInput(input: Record<string, unknown>, key: string): string | undefined {
   const value = input[key];
   return typeof value === "string" ? value : undefined;
+}
+
+function createThinkingTokenEmitter(
+  emitter: EventEmitter,
+  stepNumber: number,
+  ids: { stepId: string; correlationId: string }
+) {
+  let tokenIndex = 0;
+  let emittedCount = 0;
+  let carry = "";
+
+  function emitToken(token: string) {
+    if (!token || emittedCount >= MAX_THINKING_TOKENS_PER_STEP) return;
+    emittedCount++;
+    tokenIndex++;
+    emitter.emit(
+      "thinking.token",
+      {
+        token,
+        tokenIndex,
+        stepNumber,
+      },
+      { stepId: ids.stepId, correlationId: ids.correlationId }
+    );
+  }
+
+  return {
+    onDelta(delta: string) {
+      if (emittedCount >= MAX_THINKING_TOKENS_PER_STEP) return;
+      const normalized = delta.replace(/\r?\n/g, " ");
+      const combined = `${carry}${normalized}`;
+      const parts = combined.split(/\s+/);
+      const endsWithWhitespace = /\s$/.test(combined);
+
+      if (!endsWithWhitespace) {
+        carry = parts.pop() ?? "";
+      } else {
+        carry = "";
+      }
+
+      for (const part of parts) {
+        const token = part.trim();
+        if (!token) continue;
+        emitToken(token);
+        if (emittedCount >= MAX_THINKING_TOKENS_PER_STEP) {
+          carry = "";
+          break;
+        }
+      }
+    },
+    flush() {
+      if (carry.trim().length > 0) {
+        emitToken(carry.trim());
+      }
+      carry = "";
+    },
+  };
 }
 
 async function executeTool(
@@ -397,8 +659,12 @@ async function executeTool(
     }
     case "read_file": {
       const filePath = getStringInput(input, "path") ?? "";
-      assertReadablePath(filePath, policy);
-      return runFileRead(filePath);
+      const resolvedPath =
+        defaultCwd && filePath && !path.isAbsolute(filePath)
+          ? path.resolve(defaultCwd, filePath)
+          : filePath;
+      assertReadablePath(resolvedPath, policy);
+      return runFileRead(filePath, defaultCwd);
     }
     case "apply_patch": {
       const patchPath = getStringInput(input, "path") ?? "";

@@ -56,8 +56,12 @@ export async function runFileSearch(
 /**
  * Read the contents of a file.
  */
-export async function runFileRead(filePath: string): Promise<string> {
-  const resolved = path.resolve(filePath);
+export async function runFileRead(filePath: string, baseDir?: string): Promise<string> {
+  const resolved = path.isAbsolute(filePath)
+    ? filePath
+    : baseDir
+      ? path.resolve(baseDir, filePath)
+      : path.resolve(filePath);
   const content = await readFile(resolved, "utf-8");
   // Truncate large files
   if (content.length > 50_000) {

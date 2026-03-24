@@ -81,6 +81,9 @@ describe("runStepLoop", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
+    vi.stubEnv("OPENAI_RETRY_BASE_MS", "0");
+    vi.stubEnv("OPENAI_RETRY_MAX_MS", "0");
+    vi.stubEnv("OPENAI_MAX_RETRIES", "3");
     mockHeartbeat.mockResolvedValue({ leaseExpiresAt: new Date().toISOString(), stopRequested: false });
     mockIngestEvents.mockResolvedValue({ accepted: 1, duplicates: 0 });
     mockListSessionEvents.mockResolvedValue({ events: [] });
@@ -183,6 +186,43 @@ describe("runStepLoop", () => {
     expect(result.error).toContain("OpenAI chat.completions failed");
   });
 
+  it("retries on 429 and succeeds on a later attempt", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 429,
+          headers: new Headers(),
+          text: async () => "rate limited",
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify(makeTextResponse("Recovered.")),
+        })
+    );
+    const result = await runStepLoop(baseOpts);
+    expect(result.outcome).toBe("completed");
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry on 400 errors", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 400,
+        headers: new Headers(),
+        text: async () => "invalid request",
+      })
+    );
+    const result = await runStepLoop(baseOpts);
+    expect(result.outcome).toBe("failed");
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("executes read_file tool and continues to completion", async () => {
     mockRunFileRead.mockResolvedValue("file contents here");
     vi.stubGlobal(
@@ -202,7 +242,7 @@ describe("runStepLoop", () => {
     );
     const result = await runStepLoop(baseOpts);
     expect(result.outcome).toBe("completed");
-    expect(mockRunFileRead).toHaveBeenCalledWith("/tmp/test.txt");
+    expect(mockRunFileRead).toHaveBeenCalledWith("/tmp/test.txt", undefined);
   });
 
   it("denies read_file outside policy boundaries", async () => {
@@ -267,7 +307,29 @@ describe("runStepLoop", () => {
     );
     const result = await runStepLoop({ ...baseOpts, workdirPolicy: testPolicy });
     expect(result.outcome).toBe("completed");
-    expect(mockRunFileRead).toHaveBeenCalledWith("/tmp/project/src/main.ts");
+    expect(mockRunFileRead).toHaveBeenCalledWith("/tmp/project/src/main.ts", "/tmp/project");
+  });
+
+  it("resolves relative read_file paths against policy workdir", async () => {
+    mockRunFileRead.mockResolvedValue("file contents");
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify(makeToolUseResponse("read_file", { path: "src/main.ts" })),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify(makeTextResponse("Done.")),
+        })
+    );
+    const result = await runStepLoop({ ...baseOpts, workdirPolicy: testPolicy });
+    expect(result.outcome).toBe("completed");
+    expect(mockRunFileRead).toHaveBeenCalledWith("src/main.ts", "/tmp/project");
   });
 
   it("denies apply_patch when path escapes writable root via symlinked parent", async () => {
