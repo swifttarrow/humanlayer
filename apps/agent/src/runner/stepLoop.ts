@@ -668,8 +668,12 @@ async function executeTool(
     }
     case "apply_patch": {
       const patchPath = getStringInput(input, "path") ?? "";
-      assertWritablePath(patchPath, policy);
-      return runPatch(patchPath, getStringInput(input, "patch") ?? "");
+      const resolvedPath =
+        defaultCwd && patchPath && !path.isAbsolute(patchPath)
+          ? path.resolve(defaultCwd, patchPath)
+          : patchPath;
+      assertWritablePath(resolvedPath, policy);
+      return runPatch(resolvedPath, getStringInput(input, "patch") ?? "");
     }
     case "run_shell": {
       const cwd = getStringInput(input, "cwd") ?? defaultCwd;

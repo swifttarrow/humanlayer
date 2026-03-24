@@ -379,4 +379,50 @@ describe("runStepLoop", () => {
       await rm(rootTmp, { recursive: true, force: true });
     }
   });
+
+  it("resolves relative apply_patch paths against policy workdir", async () => {
+    mockRunPatch.mockResolvedValue("Patched successfully.");
+    const rootTmp = await mkdtemp(path.join(os.tmpdir(), "step-loop-policy-"));
+    const projectDir = path.join(rootTmp, "project");
+    await mkdir(projectDir);
+    const policy: WorkingDirectoryPolicy = {
+      inputPath: projectDir,
+      resolvedPath: projectDir,
+      runtimeMode: "local",
+      exposedSurfaces: [],
+    };
+
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: async () =>
+            JSON.stringify(
+              makeToolUseResponse("apply_patch", {
+                path: "src/main.ts",
+                patch: "@@ -1,1 +1,1 @@\n-old\n+new",
+              })
+            ),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify(makeTextResponse("Done.")),
+        })
+    );
+
+    try {
+      const result = await runStepLoop({ ...baseOpts, workdirPolicy: policy });
+      expect(result.outcome).toBe("completed");
+      expect(mockRunPatch).toHaveBeenCalledWith(
+        path.join(projectDir, "src/main.ts"),
+        "@@ -1,1 +1,1 @@\n-old\n+new"
+      );
+    } finally {
+      await rm(rootTmp, { recursive: true, force: true });
+    }
+  });
 });
