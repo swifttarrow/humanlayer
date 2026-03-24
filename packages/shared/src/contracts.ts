@@ -9,7 +9,8 @@ export type SessionStatus =
   | "stopping"
   | "completed"
   | "stopped"
-  | "failed";
+  | "failed"
+  | "blocked";
 
 // ============================================================
 // Attempt Status
@@ -32,6 +33,7 @@ export type SessionEventType =
   | "session.completed"
   | "session.failed"
   | "session.stopped"
+  | "session.blocked"
   | "step.started"
   | "step.completed"
   | "step.failed"
@@ -43,7 +45,78 @@ export type SessionEventType =
   | "heartbeat"
   | "stop.requested"
   | "policy.validated"
-  | "policy.denied";
+  | "policy.denied"
+  | "phase.transition"
+  | "exploration.budget_warning"
+  | "exploration.budget_exhausted"
+  | "edit_readiness.hypothesis";
+
+// ============================================================
+// Execution Phase
+// ============================================================
+
+/**
+ * Explicit execution phases for agent sessions.
+ * Progression: exploring -> editing -> validating -> terminal.
+ */
+export type SessionPhase =
+  | "exploring"
+  | "editing"
+  | "validating";
+
+/**
+ * Reason codes for blocked/insufficient-context terminal outcomes.
+ */
+export type BlockedReason =
+  | "exploration_budget_exhausted"
+  | "no_credible_target"
+  | "insufficient_context"
+  | "patch_not_validated";
+
+/**
+ * Terminal summary payload for session.blocked and session.failed events.
+ * Provides machine-readable context for why the session could not complete.
+ *
+ * Required fields in terminal summary payloads:
+ * - reason: BlockedReason code explaining the terminal outcome
+ * - phase: The SessionPhase the agent was in when it terminated
+ * - writeAttempted: Whether a patch/write was attempted during the session
+ *
+ * Optional fields:
+ * - summary: Human-readable explanation
+ * - hypothesis: Last edit-readiness hypothesis if one was emitted
+ * - explorationBudget: Budget state at termination
+ */
+export interface TerminalSummary {
+  reason: BlockedReason;
+  phase: SessionPhase;
+  writeAttempted: boolean;
+  summary?: string;
+  hypothesis?: EditReadinessHypothesis;
+  explorationBudget?: ExplorationBudgetState;
+}
+
+/**
+ * Structured edit-readiness hypothesis emitted before deep/repeated reads.
+ */
+export interface EditReadinessHypothesis {
+  candidateFile?: string;
+  plannedChange?: string;
+  uncertaintyReason: string;
+  uncertaintyCategory: "missing_context" | "ambiguous_target" | "validation_unknown" | "scope_unclear";
+}
+
+/**
+ * Exploration budget accounting state emitted in budget events.
+ */
+export interface ExplorationBudgetState {
+  readsUsed: number;
+  readsLimit: number;
+  searchesUsed: number;
+  searchesLimit: number;
+  explorationStepsUsed: number;
+  explorationStepsLimit: number;
+}
 
 // ============================================================
 // Core Domain Interfaces

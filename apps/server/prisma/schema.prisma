@@ -9,7 +9,7 @@ datasource db {
 
 model Session {
   id           String   @id @default(uuid())
-  status       String   // SessionStatus: created|starting|running|stopping|completed|stopped|failed
+  status       String   // SessionStatus: created|starting|running|stopping|completed|stopped|failed|blocked
   goal         String
   agentType    String   @default("default")
   createdAt    DateTime @default(now())

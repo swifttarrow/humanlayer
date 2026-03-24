@@ -10,6 +10,7 @@ const EVENT_COLORS: Record<string, string> = {
   "session.completed": "#4ADE80",
   "session.failed": "#F87171",
   "session.stopped": "#F59E0B",
+  "session.blocked": "#F59E0B",
   "step.started": "#94A3B8",
   "step.completed": "#4ADE80",
   "step.failed": "#F87171",
@@ -18,6 +19,10 @@ const EVENT_COLORS: Record<string, string> = {
   "tool.failed": "#F87171",
   "message.completed": "#22D3EE",
   "heartbeat": "#334155",
+  "phase.transition": "#60A5FA",
+  "exploration.budget_warning": "#FBBF24",
+  "exploration.budget_exhausted": "#F59E0B",
+  "edit_readiness.hypothesis": "#A78BFA",
 };
 
 export function RawEventsPanel({ events }: Props) {

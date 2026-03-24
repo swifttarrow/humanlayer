@@ -2,17 +2,25 @@ import { randomUUID } from "crypto";
 import path from "path";
 import { EventEmitter } from "./eventEmitter.js";
 import { heartbeat, listSessionEvents } from "../api.js";
-import { runFileSearch, runFileRead } from "../tools/fileTools.js";
+import { runFileSearch, runFileRead, runFileReadRange } from "../tools/fileTools.js";
 import { runPatch } from "../tools/patchTool.js";
 import { runShell } from "../tools/shellTool.js";
-import type { WorkingDirectoryPolicy } from "@humanlayer/shared";
+import type {
+  WorkingDirectoryPolicy,
+  SessionPhase,
+  BlockedReason,
+  ExplorationBudgetState,
+  EditReadinessHypothesis,
+} from "@humanlayer/shared";
 import { assertReadablePath, assertWritablePath, assertExecutableCwd, PolicyDeniedError } from "../tools/workspacePolicy.js";
 
 // Keep step numbers monotonic across follow-up runs in the same session.
 const sessionStepCounts = new Map<string, number>();
 
 const MODEL = process.env.AGENT_MODEL ?? "gpt-4.1-mini";
-const MAX_STEPS = parseInt(process.env.MAX_STEPS ?? "20", 10);
+function getMaxSteps(): number {
+  return parseInt(process.env.MAX_STEPS ?? "20", 10);
+}
 const MAX_THINKING_TOKENS_PER_STEP = parseInt(
   process.env.MAX_THINKING_TOKENS_PER_STEP ?? "300",
   10
@@ -21,6 +29,17 @@ const HEARTBEAT_INTERVAL_MS = parseInt(
   process.env.HEARTBEAT_INTERVAL_MS ?? "15000",
   10
 );
+
+// Exploration budget defaults — configurable via environment (read at runtime for testability)
+function getExplorationMaxReads(): number {
+  return parseInt(process.env.EXPLORATION_MAX_READS ?? "10", 10);
+}
+function getExplorationMaxSearches(): number {
+  return parseInt(process.env.EXPLORATION_MAX_SEARCHES ?? "8", 10);
+}
+function getExplorationMaxSteps(): number {
+  return parseInt(process.env.EXPLORATION_MAX_STEPS ?? "8", 10);
+}
 
 interface OpenAIToolDefinition {
   type: "function";
@@ -100,6 +119,29 @@ const TOOLS: OpenAIToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "read_file_range",
+      description:
+        "Read a specific line range from a file. Prefer this over read_file for targeted context gathering.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "File path to read" },
+          start_line: {
+            type: "number",
+            description: "1-based start line (inclusive)",
+          },
+          end_line: {
+            type: "number",
+            description: "1-based end line (inclusive). Max 200 lines per call.",
+          },
+        },
+        required: ["path", "start_line", "end_line"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "apply_patch",
       description: "Apply a unified diff patch to a file",
       parameters: {
@@ -139,9 +181,100 @@ export interface StepLoopOptions {
 }
 
 export interface StepLoopResult {
-  outcome: "completed" | "stopped" | "failed";
+  outcome: "completed" | "stopped" | "failed" | "blocked";
   summary?: string;
   error?: string;
+  blockedReason?: BlockedReason;
+}
+
+/** Mutable tracking of exploration budget and phase within a single run. */
+interface ExplorationTracker {
+  phase: SessionPhase;
+  readsUsed: number;
+  searchesUsed: number;
+  explorationStepsUsed: number;
+  consecutiveExplorationSteps: number;
+  writeAttempted: boolean;
+  patchAttempts: number;
+  patchFailed: boolean;
+  inRetryLoop: boolean;
+  lastHypothesis?: EditReadinessHypothesis;
+}
+
+function createExplorationTracker(): ExplorationTracker {
+  return {
+    phase: "exploring",
+    readsUsed: 0,
+    searchesUsed: 0,
+    explorationStepsUsed: 0,
+    consecutiveExplorationSteps: 0,
+    writeAttempted: false,
+    patchAttempts: 0,
+    patchFailed: false,
+    inRetryLoop: false,
+  };
+}
+
+function getBudgetState(tracker: ExplorationTracker): ExplorationBudgetState {
+  return {
+    readsUsed: tracker.readsUsed,
+    readsLimit: getExplorationMaxReads(),
+    searchesUsed: tracker.searchesUsed,
+    searchesLimit: getExplorationMaxSearches(),
+    explorationStepsUsed: tracker.explorationStepsUsed,
+    explorationStepsLimit: getExplorationMaxSteps(),
+  };
+}
+
+function isExplorationBudgetExhausted(tracker: ExplorationTracker): boolean {
+  return (
+    tracker.readsUsed >= getExplorationMaxReads() ||
+    tracker.searchesUsed >= getExplorationMaxSearches() ||
+    tracker.explorationStepsUsed >= getExplorationMaxSteps()
+  );
+}
+
+/** Returns true if the tool is an exploration-only tool (read/search). */
+function isExplorationTool(name: string): boolean {
+  return name === "read_file" || name === "search_files" || name === "read_file_range";
+}
+
+/** Returns true if the tool is a write/edit tool. */
+function isWriteTool(name: string): boolean {
+  return name === "apply_patch";
+}
+
+/** Number of consecutive exploration-only steps before requiring a hypothesis. */
+const HYPOTHESIS_THRESHOLD = 3;
+
+/**
+ * Extract a best-effort edit-readiness hypothesis from tool inputs and assistant text.
+ * Returns a structured hypothesis for observability.
+ */
+function extractHypothesis(
+  toolCalls: OpenAIToolCall[],
+  assistantContent: string
+): EditReadinessHypothesis {
+  // Try to determine the candidate file from read/search tool inputs
+  let candidateFile: string | undefined;
+  for (const tc of toolCalls) {
+    try {
+      const input = JSON.parse(tc.function.arguments) as Record<string, unknown>;
+      if (tc.function.name === "read_file" || tc.function.name === "read_file_range") {
+        candidateFile = input.path as string | undefined;
+        break;
+      }
+    } catch { /* ignore parse errors */ }
+  }
+
+  return {
+    candidateFile,
+    plannedChange: undefined,
+    uncertaintyReason: assistantContent
+      ? assistantContent.slice(0, 200)
+      : "Continued exploration without explicit rationale",
+    uncertaintyCategory: candidateFile ? "missing_context" : "ambiguous_target",
+  };
 }
 
 export async function runStepLoop(opts: StepLoopOptions): Promise<StepLoopResult> {
@@ -193,9 +326,10 @@ export async function runStepLoop(opts: StepLoopOptions): Promise<StepLoopResult
   let runStepCount = 0;
   let stepCount = await getStartingStepCount(opts.sessionId);
   let summary = "";
+  const tracker = createExplorationTracker();
 
   try {
-    while (runStepCount < MAX_STEPS) {
+    while (runStepCount < getMaxSteps()) {
       // Check stop at each step boundary
       try {
         const hb = await heartbeat(opts.agentId, opts.attemptId, opts.sessionId);
@@ -257,6 +391,10 @@ export async function runStepLoop(opts: StepLoopOptions): Promise<StepLoopResult
         break;
       }
 
+      // Track whether this step has any write tools
+      let stepHasWrite = false;
+      let stepHasExplorationOnly = true;
+
       // Execute tools
       for (const toolUse of toolCalls) {
         const parsedInput = parseToolInput(toolUse.function.arguments);
@@ -302,6 +440,77 @@ export async function runStepLoop(opts: StepLoopOptions): Promise<StepLoopResult
           tool_call_id: toolUse.id,
           content: isError ? `Error: ${result}` : result,
         });
+
+        // Budget tracking
+        const toolName = toolUse.function.name;
+        if (isWriteTool(toolName)) {
+          stepHasWrite = true;
+          stepHasExplorationOnly = false;
+          tracker.writeAttempted = true;
+          tracker.patchAttempts++;
+          if (isError) {
+            tracker.patchFailed = true;
+          } else {
+            tracker.patchFailed = false;
+          }
+        } else if (!isExplorationTool(toolName)) {
+          stepHasExplorationOnly = false;
+        }
+
+        if (toolName === "read_file" || toolName === "read_file_range") {
+          tracker.readsUsed++;
+        } else if (toolName === "search_files") {
+          tracker.searchesUsed++;
+        }
+      }
+
+      // Phase transitions based on tool usage
+      if (stepHasWrite && tracker.phase === "exploring") {
+        const prevPhase = tracker.phase;
+        tracker.phase = "editing";
+        emitter.emit("phase.transition", { from: prevPhase, to: "editing" }, { stepId, correlationId });
+      }
+
+      // Write-then-validate retry: allow one focused re-read + second patch attempt
+      if (stepHasWrite && tracker.patchFailed && tracker.patchAttempts === 1 && !tracker.inRetryLoop) {
+        tracker.inRetryLoop = true;
+        tracker.phase = "validating";
+        emitter.emit("phase.transition", { from: "editing", to: "validating" }, { stepId, correlationId });
+        // Continue loop — agent gets one more cycle to re-read and retry
+      } else if (stepHasWrite && tracker.patchFailed && tracker.patchAttempts >= 2) {
+        // Second patch also failed — terminal as blocked
+        emitter.emit("session.blocked", {
+          reason: "patch_not_validated" as BlockedReason,
+          phase: tracker.phase,
+          writeAttempted: true,
+          summary: "Patch attempted but validation failed after retry",
+          explorationBudget: getBudgetState(tracker),
+        }, { isTerminal: true });
+        await emitter.flush();
+        clearInterval(heartbeatTimer);
+        return {
+          outcome: "blocked",
+          summary: "Patch attempted but validation failed after retry",
+          blockedReason: "patch_not_validated",
+        };
+      }
+
+      if (stepHasExplorationOnly && tracker.phase === "exploring") {
+        tracker.explorationStepsUsed++;
+        tracker.consecutiveExplorationSteps++;
+
+        // Emit edit-readiness hypothesis after repeated exploration-only steps
+        if (tracker.consecutiveExplorationSteps >= HYPOTHESIS_THRESHOLD) {
+          const hypothesis = extractHypothesis(toolCalls, assistantContent);
+          tracker.lastHypothesis = hypothesis;
+          emitter.emit("edit_readiness.hypothesis", {
+            hypothesis,
+            explorationStepsSoFar: tracker.consecutiveExplorationSteps,
+            budget: getBudgetState(tracker),
+          }, { stepId, correlationId });
+        }
+      } else if (!stepHasExplorationOnly) {
+        tracker.consecutiveExplorationSteps = 0;
       }
 
       emitter.emit(
@@ -310,6 +519,30 @@ export async function runStepLoop(opts: StepLoopOptions): Promise<StepLoopResult
         { stepId, correlationId }
       );
       await emitter.flush();
+
+      // Check exploration budget after step completes
+      if (tracker.phase === "exploring" && isExplorationBudgetExhausted(tracker)) {
+        emitter.emit("exploration.budget_exhausted", {
+          budget: getBudgetState(tracker),
+          writeAttempted: tracker.writeAttempted,
+        }, { isTerminal: false });
+
+        // Terminate as blocked — exploration exhausted without a write attempt
+        emitter.emit("session.blocked", {
+          reason: "exploration_budget_exhausted" as BlockedReason,
+          phase: tracker.phase,
+          writeAttempted: tracker.writeAttempted,
+          summary: "Exploration budget exhausted without credible write target",
+          explorationBudget: getBudgetState(tracker),
+        }, { isTerminal: true });
+        await emitter.flush();
+        clearInterval(heartbeatTimer);
+        return {
+          outcome: "blocked",
+          summary: "Exploration budget exhausted without credible write target",
+          blockedReason: "exploration_budget_exhausted",
+        };
+      }
     }
 
     clearInterval(heartbeatTimer);
@@ -318,6 +551,23 @@ export async function runStepLoop(opts: StepLoopOptions): Promise<StepLoopResult
       emitter.emit("session.stopped", { reason: "stop_requested" }, { isTerminal: true });
       await emitter.flush();
       return { outcome: "stopped", summary };
+    }
+
+    // If max steps exhausted without a write attempt, emit blocked instead of completed
+    if (!tracker.writeAttempted && runStepCount >= getMaxSteps()) {
+      emitter.emit("session.blocked", {
+        reason: "no_credible_target" as BlockedReason,
+        phase: tracker.phase,
+        writeAttempted: false,
+        summary: "Max steps exhausted without write attempt",
+        explorationBudget: getBudgetState(tracker),
+      }, { isTerminal: true });
+      await emitter.flush();
+      return {
+        outcome: "blocked",
+        summary: "Max steps exhausted without write attempt",
+        blockedReason: "no_credible_target",
+      };
     }
 
     emitter.emit("session.completed", { summary, stepCount }, { isTerminal: true });
@@ -669,6 +919,17 @@ async function executeTool(
           : filePath;
       assertReadablePath(resolvedPath, policy);
       return runFileRead(filePath, defaultCwd);
+    }
+    case "read_file_range": {
+      const filePath = getStringInput(input, "path") ?? "";
+      const resolvedPath =
+        defaultCwd && filePath && !path.isAbsolute(filePath)
+          ? path.resolve(defaultCwd, filePath)
+          : filePath;
+      assertReadablePath(resolvedPath, policy);
+      const startLine = typeof input.start_line === "number" ? input.start_line : 1;
+      const endLine = typeof input.end_line === "number" ? input.end_line : startLine + 50;
+      return runFileReadRange(filePath, startLine, endLine, defaultCwd);
     }
     case "apply_patch": {
       const patchPath = getStringInput(input, "path") ?? "";

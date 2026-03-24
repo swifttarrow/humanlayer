@@ -9,6 +9,7 @@ const mockIngestEvents = vi.hoisted(() => vi.fn());
 const mockListSessionEvents = vi.hoisted(() => vi.fn());
 const mockRunFileSearch = vi.hoisted(() => vi.fn());
 const mockRunFileRead = vi.hoisted(() => vi.fn());
+const mockRunFileReadRange = vi.hoisted(() => vi.fn());
 const mockRunShell = vi.hoisted(() => vi.fn());
 const mockRunPatch = vi.hoisted(() => vi.fn());
 
@@ -21,6 +22,7 @@ vi.mock("../api.js", () => ({
 vi.mock("../tools/fileTools.js", () => ({
   runFileSearch: mockRunFileSearch,
   runFileRead: mockRunFileRead,
+  runFileReadRange: mockRunFileReadRange,
 }));
 
 vi.mock("../tools/patchTool.js", () => ({
@@ -459,5 +461,299 @@ describe("runStepLoop", () => {
     } finally {
       await rm(rootTmp, { recursive: true, force: true });
     }
+  });
+
+  it("emits blocked when exploration budget is exhausted without write", async () => {
+    vi.stubEnv("EXPLORATION_MAX_STEPS", "2");
+    vi.stubEnv("EXPLORATION_MAX_READS", "100");
+    vi.stubEnv("EXPLORATION_MAX_SEARCHES", "100");
+    mockRunFileRead.mockResolvedValue("file contents");
+
+    // Create a mock that returns read_file tool calls repeatedly, then text
+    const fetchMock = vi.fn();
+    // Steps 1 and 2: read_file calls (exploration-only steps)
+    for (let i = 0; i < 2; i++) {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify(makeToolUseResponse("read_file", { path: `/tmp/file${i}.ts` })),
+      });
+    }
+    // Step 3 won't be reached since budget exhaustion happens after step 2
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await runStepLoop({ ...baseOpts, sessionId: "sess-budget-exhaust" });
+    expect(result.outcome).toBe("blocked");
+    expect(result.blockedReason).toBe("exploration_budget_exhausted");
+
+    // Verify session.blocked event was emitted
+    const allEvents = mockIngestEvents.mock.calls
+      .flatMap((call) => call[2] as Array<{ eventType: string; payload: Record<string, unknown> }>);
+    const blockedEvent = allEvents.find((e) => e.eventType === "session.blocked");
+    expect(blockedEvent).toBeDefined();
+    expect(blockedEvent!.payload.reason).toBe("exploration_budget_exhausted");
+    expect(blockedEvent!.payload.writeAttempted).toBe(false);
+  });
+
+  it("does not exhaust budget when write tools are used", async () => {
+    vi.stubEnv("EXPLORATION_MAX_STEPS", "2");
+    vi.stubEnv("EXPLORATION_MAX_READS", "100");
+    vi.stubEnv("EXPLORATION_MAX_SEARCHES", "100");
+    mockRunFileRead.mockResolvedValue("file contents");
+    mockRunPatch.mockResolvedValue("Patched successfully.");
+
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        // Step 1: read_file (exploration)
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: async () =>
+            JSON.stringify(makeToolUseResponse("read_file", { path: "/tmp/file.ts" })),
+        })
+        // Step 2: apply_patch (write — transitions phase, resets exploration step counting)
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: async () =>
+            JSON.stringify(
+              makeToolUseResponse("apply_patch", {
+                path: "/tmp/file.ts",
+                patch: "@@ -1,1 +1,1 @@\n-old\n+new",
+              })
+            ),
+        })
+        // Step 3: text completion
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify(makeTextResponse("Done.")),
+        })
+    );
+
+    const result = await runStepLoop({ ...baseOpts, sessionId: "sess-budget-write" });
+    expect(result.outcome).toBe("completed");
+  });
+
+  it("executes read_file_range tool and tracks as exploration read", async () => {
+    mockRunFileReadRange.mockResolvedValue("10: function foo() {\n11:   return 1;\n12: }");
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: async () =>
+            JSON.stringify(
+              makeToolUseResponse("read_file_range", { path: "/tmp/f.ts", start_line: 10, end_line: 12 })
+            ),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify(makeTextResponse("Done.")),
+        })
+    );
+    const result = await runStepLoop({ ...baseOpts, sessionId: "sess-range-read" });
+    expect(result.outcome).toBe("completed");
+    expect(mockRunFileReadRange).toHaveBeenCalledWith("/tmp/f.ts", 10, 12, undefined);
+  });
+
+  it("emits edit_readiness.hypothesis after 3 consecutive exploration steps", async () => {
+    vi.stubEnv("EXPLORATION_MAX_STEPS", "100");
+    vi.stubEnv("EXPLORATION_MAX_READS", "100");
+    vi.stubEnv("EXPLORATION_MAX_SEARCHES", "100");
+    mockRunFileRead.mockResolvedValue("file contents");
+
+    const fetchMock = vi.fn();
+    // 3 exploration-only steps (read_file)
+    for (let i = 0; i < 3; i++) {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify(makeToolUseResponse("read_file", { path: `/tmp/file${i}.ts` })),
+      });
+    }
+    // Then text completion
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify(makeTextResponse("Done.")),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await runStepLoop({ ...baseOpts, sessionId: "sess-hypothesis" });
+    expect(result.outcome).toBe("completed");
+
+    const allEvents = mockIngestEvents.mock.calls
+      .flatMap((call) => call[2] as Array<{ eventType: string; payload: Record<string, unknown> }>);
+    const hypothesisEvent = allEvents.find((e) => e.eventType === "edit_readiness.hypothesis");
+    expect(hypothesisEvent).toBeDefined();
+    expect(hypothesisEvent!.payload.hypothesis).toEqual(
+      expect.objectContaining({
+        uncertaintyCategory: expect.stringMatching(/missing_context|ambiguous_target/),
+      })
+    );
+  });
+
+  it("transitions from exploring to editing when write tool is used", async () => {
+    vi.stubEnv("EXPLORATION_MAX_STEPS", "100");
+    vi.stubEnv("EXPLORATION_MAX_READS", "100");
+    mockRunFileRead.mockResolvedValue("file contents");
+    mockRunPatch.mockResolvedValue("Patched successfully.");
+
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: async () =>
+            JSON.stringify(makeToolUseResponse("read_file", { path: "/tmp/f.ts" })),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: async () =>
+            JSON.stringify(
+              makeToolUseResponse("apply_patch", {
+                path: "/tmp/f.ts",
+                patch: "@@ -1,1 +1,1 @@\n-old\n+new",
+              })
+            ),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify(makeTextResponse("Done.")),
+        })
+    );
+
+    const result = await runStepLoop({ ...baseOpts, sessionId: "sess-phase-transition" });
+    expect(result.outcome).toBe("completed");
+
+    const allEvents = mockIngestEvents.mock.calls
+      .flatMap((call) => call[2] as Array<{ eventType: string; payload: Record<string, unknown> }>);
+    const phaseEvent = allEvents.find((e) => e.eventType === "phase.transition");
+    expect(phaseEvent).toBeDefined();
+    expect(phaseEvent!.payload).toEqual({ from: "exploring", to: "editing" });
+  });
+
+  it("allows one retry after first patch failure then completes on success", async () => {
+    vi.stubEnv("EXPLORATION_MAX_STEPS", "100");
+    vi.stubEnv("EXPLORATION_MAX_READS", "100");
+    vi.stubEnv("EXPLORATION_MAX_SEARCHES", "100");
+    mockRunFileRead.mockResolvedValue("file contents");
+    mockRunPatch
+      .mockRejectedValueOnce(new Error("hunk mismatch")) // first patch fails
+      .mockResolvedValueOnce("Patched successfully."); // second patch succeeds
+
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        // Step 1: apply_patch (fails)
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: async () =>
+            JSON.stringify(
+              makeToolUseResponse("apply_patch", { path: "/tmp/f.ts", patch: "bad-patch" })
+            ),
+        })
+        // Step 2: re-read (retry loop)
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: async () =>
+            JSON.stringify(makeToolUseResponse("read_file", { path: "/tmp/f.ts" })),
+        })
+        // Step 3: apply_patch (succeeds)
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: async () =>
+            JSON.stringify(
+              makeToolUseResponse("apply_patch", { path: "/tmp/f.ts", patch: "good-patch" })
+            ),
+        })
+        // Step 4: text completion
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify(makeTextResponse("Done.")),
+        })
+    );
+
+    const result = await runStepLoop({ ...baseOpts, sessionId: "sess-retry-ok" });
+    expect(result.outcome).toBe("completed");
+    expect(mockRunPatch).toHaveBeenCalledTimes(2);
+  });
+
+  it("emits blocked after two failed patch attempts", async () => {
+    vi.stubEnv("EXPLORATION_MAX_STEPS", "100");
+    vi.stubEnv("EXPLORATION_MAX_READS", "100");
+    vi.stubEnv("EXPLORATION_MAX_SEARCHES", "100");
+    mockRunPatch
+      .mockRejectedValueOnce(new Error("hunk mismatch"))
+      .mockRejectedValueOnce(new Error("still wrong"));
+
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        // Step 1: apply_patch (fails — first attempt)
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: async () =>
+            JSON.stringify(
+              makeToolUseResponse("apply_patch", { path: "/tmp/f.ts", patch: "bad" })
+            ),
+        })
+        // Step 2: apply_patch again (fails — second attempt)
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: async () =>
+            JSON.stringify(
+              makeToolUseResponse("apply_patch", { path: "/tmp/f.ts", patch: "still-bad" })
+            ),
+        })
+    );
+
+    const result = await runStepLoop({ ...baseOpts, sessionId: "sess-retry-fail" });
+    expect(result.outcome).toBe("blocked");
+    expect(result.blockedReason).toBe("patch_not_validated");
+  });
+
+  it("emits blocked for max-step exhaustion without write attempt", async () => {
+    vi.stubEnv("MAX_STEPS", "2");
+    vi.stubEnv("EXPLORATION_MAX_STEPS", "100");
+    vi.stubEnv("EXPLORATION_MAX_READS", "100");
+    vi.stubEnv("EXPLORATION_MAX_SEARCHES", "100");
+    mockRunShell.mockResolvedValue("output");
+
+    // 2 steps of run_shell (non-exploration, non-write)
+    const fetchMock = vi.fn();
+    for (let i = 0; i < 2; i++) {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify(makeToolUseResponse("run_shell", { command: "echo hi" })),
+      });
+    }
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await runStepLoop({ ...baseOpts, sessionId: "sess-maxstep-nowrite" });
+    expect(result.outcome).toBe("blocked");
+    expect(result.blockedReason).toBe("no_credible_target");
   });
 });

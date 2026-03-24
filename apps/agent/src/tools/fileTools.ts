@@ -69,3 +69,53 @@ export async function runFileRead(filePath: string, baseDir?: string): Promise<s
   }
   return content;
 }
+
+/** Maximum lines allowed in a single range read. */
+const MAX_RANGE_LINES = 200;
+
+/**
+ * Read a specific line range from a file.
+ * @param filePath - File path (absolute or relative to baseDir)
+ * @param startLine - 1-based start line (inclusive)
+ * @param endLine - 1-based end line (inclusive)
+ * @param baseDir - Optional base directory for relative paths
+ */
+export async function runFileReadRange(
+  filePath: string,
+  startLine: number,
+  endLine: number,
+  baseDir?: string
+): Promise<string> {
+  const resolved = path.isAbsolute(filePath)
+    ? filePath
+    : baseDir
+      ? path.resolve(baseDir, filePath)
+      : path.resolve(filePath);
+
+  // Clamp to safe limits
+  const effectiveStart = Math.max(1, startLine);
+  const effectiveEnd = Math.max(effectiveStart, endLine);
+  const requestedLines = effectiveEnd - effectiveStart + 1;
+  const cappedEnd = effectiveStart + Math.min(requestedLines, MAX_RANGE_LINES) - 1;
+
+  const rl = createInterface({ input: createReadStream(resolved) });
+  const lines: string[] = [];
+  let lineNum = 0;
+
+  for await (const line of rl) {
+    lineNum++;
+    if (lineNum < effectiveStart) continue;
+    if (lineNum > cappedEnd) break;
+    lines.push(`${lineNum}: ${line}`);
+  }
+
+  if (lines.length === 0) {
+    return `No content in lines ${effectiveStart}-${cappedEnd} (file has ${lineNum} lines).`;
+  }
+
+  let result = lines.join("\n");
+  if (requestedLines > MAX_RANGE_LINES) {
+    result += `\n... [capped at ${MAX_RANGE_LINES} lines; requested ${requestedLines}]`;
+  }
+  return result;
+}

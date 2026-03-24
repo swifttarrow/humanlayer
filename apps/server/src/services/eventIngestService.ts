@@ -176,6 +176,30 @@ async function updateDerivedState(
       });
       break;
     }
+    case "session.blocked": {
+      stateUpdate.status = "blocked";
+      stateUpdate.currentStep = null;
+      stateUpdate.currentTool = null;
+      await tx.sessionAttempt.update({
+        where: { id: attemptId },
+        data: { status: "failed", endedAt: new Date() },
+      });
+      const blockedReason = (payload.reason as string) ?? "insufficient_context";
+      const blockedSummary = (payload.summary as string)?.slice(0, 500);
+      await tx.session.update({
+        where: { id: sessionId },
+        data: {
+          status: "blocked" as SessionStatus,
+          endedAt: new Date(),
+          errorSummary: blockedSummary ?? `Blocked: ${blockedReason}`,
+        },
+      });
+      break;
+    }
+    case "phase.transition": {
+      // Update session state metadata with current phase; no status change
+      break;
+    }
   }
 
   if (Object.keys(stateUpdate).length > 0) {

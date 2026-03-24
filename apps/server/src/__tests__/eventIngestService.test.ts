@@ -134,4 +134,82 @@ describe("ingestEvents", () => {
       expect.objectContaining({ data: expect.objectContaining({ status: "completed" }) })
     );
   });
+
+  it("updates derived state for session.blocked event", async () => {
+    const db = makeDb(makeAttempt());
+    const tx = (db as unknown as { _tx: ReturnType<typeof makeDb>["_tx"] })._tx;
+    await ingestEvents(
+      "sess-1",
+      "att-1",
+      [makeEvent({
+        eventType: "session.blocked",
+        isTerminal: true,
+        payload: {
+          reason: "exploration_budget_exhausted",
+          phase: "exploring",
+          writeAttempted: false,
+          summary: "Budget exhausted without credible write target",
+        },
+      })],
+      db
+    );
+    expect(tx.session.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "blocked",
+          errorSummary: "Budget exhausted without credible write target",
+        }),
+      })
+    );
+    expect(tx.sessionAttempt.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: "failed" }),
+      })
+    );
+    expect(tx.sessionState.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.objectContaining({ status: "blocked" }),
+      })
+    );
+  });
+
+  it("updates derived state for session.blocked without summary uses reason", async () => {
+    const db = makeDb(makeAttempt());
+    const tx = (db as unknown as { _tx: ReturnType<typeof makeDb>["_tx"] })._tx;
+    await ingestEvents(
+      "sess-1",
+      "att-1",
+      [makeEvent({
+        eventType: "session.blocked",
+        isTerminal: true,
+        payload: { reason: "insufficient_context", phase: "exploring", writeAttempted: false },
+      })],
+      db
+    );
+    expect(tx.session.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "blocked",
+          errorSummary: "Blocked: insufficient_context",
+        }),
+      })
+    );
+  });
+
+  it("handles phase.transition event without changing session status", async () => {
+    const db = makeDb(makeAttempt());
+    const tx = (db as unknown as { _tx: ReturnType<typeof makeDb>["_tx"] })._tx;
+    await ingestEvents(
+      "sess-1",
+      "att-1",
+      [makeEvent({
+        eventType: "phase.transition",
+        payload: { from: "exploring", to: "editing" },
+      })],
+      db
+    );
+    // phase.transition should not update session or attempt status
+    expect(tx.session.update).not.toHaveBeenCalled();
+    expect(tx.sessionAttempt.update).not.toHaveBeenCalled();
+  });
 });

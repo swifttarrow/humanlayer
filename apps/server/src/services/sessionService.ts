@@ -99,7 +99,7 @@ export async function stopSession(
     const session = await tx.session.findUnique({ where: { id } });
     if (!session) return null;
 
-    if (["completed", "stopped", "failed"].includes(session.status)) {
+    if (["completed", "stopped", "failed", "blocked"].includes(session.status)) {
       return toSessionDto(session);
     }
 
@@ -145,9 +145,9 @@ export async function retrySession(
     const session = await tx.session.findUnique({ where: { id } });
     if (!session) return null;
 
-    if (!["stopped", "failed"].includes(session.status)) {
+    if (!["stopped", "failed", "blocked"].includes(session.status)) {
       throw new Error(
-        `Cannot retry session in status '${session.status}'. Must be stopped or failed.`
+        `Cannot retry session in status '${session.status}'. Must be stopped, failed, or blocked.`
       );
     }
 

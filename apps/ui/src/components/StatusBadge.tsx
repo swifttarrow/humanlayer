@@ -8,6 +8,7 @@ const STATUS_CONFIG: Record<SessionStatus, { label: string; color: string; bg: s
   completed: { label: "COMPLETED", color: "#0A0F1C", bg: "#4ADE80", dot: "✓" },
   stopped:   { label: "STOPPED",   color: "#94A3B8", bg: "#334155" },
   failed:    { label: "FAILED",    color: "#fff",    bg: "#DC2626" },
+  blocked:   { label: "BLOCKED",   color: "#0A0F1C", bg: "#F59E0B", dot: "⊘" },
 };
 
 interface Props {
