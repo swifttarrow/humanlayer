@@ -112,3 +112,12 @@ Use this format for new entries:
 **Impact:** Agent emits `policy.validated` at session start (showing resolved policy) and `policy.denied` on each blocked tool call (showing operation, path, and reason).
 **Owner:** Agent (Claude) with developer confirmation
 
+## [2026-03-24] Exploration budget with blocked terminal semantics
+
+**Context:** The current step loop can read/search until max steps and still report success, which violates requirement 3 expectations around bounded exploration and honest failure semantics.  
+**Options considered:** Prompt-only exploration guidance with existing statuses vs runtime-enforced budgets with first-class blocked semantics and explicit phase metadata.  
+**Decision:** Use runtime budget enforcement plus explicit phase transitions, and introduce `blocked` for insufficient-context terminal outcomes when no safe edit path is reached.  
+**Rationale:** Runtime accounting is the only reliable way to prevent unbounded exploration loops, and a distinct blocked outcome preserves operator visibility into "could not safely proceed" cases.  
+**Impact:** Shared contracts, agent step loop, server derived-state logic, UI traces, and evals must all support exploration/edit/validation phases and blocked terminal summaries.  
+**Owner:** Agent (Codex) with developer confirmation
+
