@@ -1,0 +1,92 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Session {
+  id           String   @id @default(uuid())
+  status       String   // SessionStatus: created|starting|running|stopping|completed|stopped|failed
+  goal         String
+  agentType    String   @default("default")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  startedAt    DateTime?
+  endedAt      DateTime?
+  errorSummary String?
+  metadata     Json?
+
+  attempts SessionAttempt[]
+  events   SessionEvent[]
+  state    SessionState?
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("sessions")
+}
+
+model SessionAttempt {
+  id              String    @id @default(uuid())
+  sessionId       String
+  agentId         String
+  status          String    // AttemptStatus: claimed|running|completed|failed|stalled|superseded
+  leaseExpiresAt  DateTime
+  stopRequestedAt DateTime?
+  startedAt       DateTime  @default(now())
+  endedAt         DateTime?
+  stopReason      String?
+
+  session Session        @relation(fields: [sessionId], references: [id])
+  events  SessionEvent[]
+
+  @@index([sessionId])
+  @@index([agentId])
+  @@index([status])
+  @@index([leaseExpiresAt])
+  @@map("session_attempts")
+}
+
+model SessionEvent {
+  id             String   @id @default(uuid())
+  sessionId      String
+  attemptId      String
+  sequenceNumber Int
+  eventType      String
+  eventTime      DateTime @default(now())
+  actorType      String   // user|agent|tool|system
+  actorId        String?
+  stepId         String?
+  parentEventId  String?
+  correlationId  String?
+  payload        Json     @default("{}")
+  isTerminal     Boolean  @default(false)
+  visibility     String   @default("user_visible") // user_visible|internal|debug_only
+  schemaVersion  String   @default("1.0")
+
+  session Session        @relation(fields: [sessionId], references: [id])
+  attempt SessionAttempt @relation(fields: [attemptId], references: [id])
+
+  // Dedupe by (sessionId, sequenceNumber) — enforces ordering uniqueness per session
+  @@unique([sessionId, sequenceNumber])
+  @@index([sessionId, sequenceNumber])
+  @@index([attemptId])
+  @@index([stepId])
+  @@map("session_events")
+}
+
+model SessionState {
+  sessionId            String    @id
+  status               String
+  currentStep          String?
+  currentTool          String?
+  lastHeartbeatAt      DateTime?
+  lastAssistantMessage String?
+  updatedAt            DateTime  @updatedAt
+
+  session Session @relation(fields: [sessionId], references: [id])
+
+  @@map("session_state")
+}

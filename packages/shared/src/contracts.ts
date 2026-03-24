@@ -163,9 +163,10 @@ export interface AgentHeartbeatResponse {
 }
 
 // POST /sessions/:id/events
+// Agent provides event id for server-side dedupe
 export interface IngestEventsRequest {
   attemptId: string;
-  events: Omit<SessionEvent, "id" | "sessionId">[];
+  events: Omit<SessionEvent, "sessionId">[];
 }
 
 export interface IngestEventsResponse {
