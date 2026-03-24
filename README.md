@@ -52,6 +52,9 @@ npm run dev
 # Requires OPENAI_API_KEY in environment
 export OPENAI_API_KEY=sk-...
 
+# Optional: set workspace host path (default: ./_workspace)
+export WORKSPACE_PATH=/path/to/your/project
+
 docker compose up --build
 ```
 
@@ -109,6 +112,8 @@ See [docs/evals/mvp-eval-spec.md](docs/evals/mvp-eval-spec.md) for full scenario
 | `PORT` | `3000` | HTTP server port |
 | `LEASE_DURATION_SECONDS` | `60` | How long an agent lease is valid |
 | `LEASE_SWEEP_INTERVAL_MS` | `30000` | Expired lease sweep interval |
+| `WORKDIR_ALLOWED_ROOTS` | `/tmp` | Comma-separated allowed root directories for working directory policy |
+| `RUNTIME_MODE` | `local` | Runtime mode: `local` or `docker` |
 
 ### Agent
 
@@ -120,3 +125,41 @@ See [docs/evals/mvp-eval-spec.md](docs/evals/mvp-eval-spec.md) for full scenario
 | `AGENT_MODEL` | `gpt-4.1-mini` | OpenAI model to use |
 | `POLL_INTERVAL_MS` | `5000` | Session pull poll interval |
 | `HEARTBEAT_INTERVAL_MS` | `15000` | Lease heartbeat interval |
+
+### Docker-specific
+
+| Variable | Default | Description |
+|---|---|---|
+| `WORKSPACE_PATH` | `./_workspace` | Host path mounted as `/workspace` in agent container |
+
+## Working Directory Policy
+
+Sessions can include a `working_directory` that constrains where the agent can read and write files.
+
+### Local Mode
+
+Set `WORKDIR_ALLOWED_ROOTS` to control which host directories are available for working directory selection. The server validates and canonicalizes paths at session creation; the agent enforces boundaries at tool execution time.
+
+```bash
+# Allow projects under ~/code and /tmp
+export WORKDIR_ALLOWED_ROOTS="$HOME/code,/tmp"
+```
+
+**Example — valid request:**
+```bash
+curl -X POST http://localhost:3000/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"goal":"fix the bug","workingDirectory":"/tmp/my-project"}'
+```
+
+**Example — rejected request (outside allowed roots):**
+```bash
+curl -X POST http://localhost:3000/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"goal":"fix the bug","workingDirectory":"/etc/secrets"}'
+# → 422: {"error":"Working directory is outside allowed roots","code":"WORKDIR_NOT_ALLOWED"}
+```
+
+### Docker Mode
+
+In Docker mode, the agent container only sees `/workspace` (mapped from `WORKSPACE_PATH`) and `/tmp`. The `read_only: true` root filesystem prevents writes outside declared mounts. The agent runs as a non-root user for additional isolation.

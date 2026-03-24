@@ -4,6 +4,8 @@ import { heartbeat } from "../api.js";
 import { runFileSearch, runFileRead } from "../tools/fileTools.js";
 import { runPatch } from "../tools/patchTool.js";
 import { runShell } from "../tools/shellTool.js";
+import type { WorkingDirectoryPolicy } from "@humanlayer/shared";
+import { assertReadablePath, assertWritablePath, assertExecutableCwd, PolicyDeniedError } from "../tools/workspacePolicy.js";
 
 const MODEL = process.env.AGENT_MODEL ?? "gpt-4.1-mini";
 const MAX_STEPS = parseInt(process.env.MAX_STEPS ?? "20", 10);
@@ -105,6 +107,8 @@ export interface StepLoopOptions {
   attemptId: string;
   agentId: string;
   goal: string;
+  /** Server-resolved working directory policy from session metadata */
+  workdirPolicy?: WorkingDirectoryPolicy;
 }
 
 export interface StepLoopResult {
@@ -143,6 +147,20 @@ export async function runStepLoop(opts: StepLoopOptions): Promise<StepLoopResult
   ];
 
   emitter.emit("session.started", { goal: opts.goal });
+
+  // Emit policy validation event if working directory policy is present
+  if (opts.workdirPolicy) {
+    emitter.emit("policy.validated", {
+      resolvedPath: opts.workdirPolicy.resolvedPath,
+      runtimeMode: opts.workdirPolicy.runtimeMode,
+      exposedSurfaces: opts.workdirPolicy.exposedSurfaces.map((s) => ({
+        hostPath: s.hostPath,
+        mode: s.mode,
+        label: s.label,
+      })),
+    });
+  }
+
   await emitter.flush();
 
   let stepCount = 0;
@@ -214,10 +232,20 @@ export async function runStepLoop(opts: StepLoopOptions): Promise<StepLoopResult
         let isError = false;
 
         try {
-          result = await executeTool(toolUse.function.name, parsedInput);
+          result = await executeTool(toolUse.function.name, parsedInput, opts.workdirPolicy);
         } catch (err) {
           result = `Error: ${String(err)}`;
           isError = true;
+
+          // Emit policy.denied event for policy violations
+          if (err instanceof PolicyDeniedError) {
+            emitter.emit("policy.denied", {
+              toolName: toolUse.function.name,
+              operation: err.operation,
+              requestedPath: err.requestedPath,
+              reason: err.message,
+            }, { stepId, correlationId, actorType: "system" });
+          }
         }
 
         emitter.emit(
@@ -322,20 +350,37 @@ function getStringInput(input: Record<string, unknown>, key: string): string | u
   return typeof value === "string" ? value : undefined;
 }
 
-async function executeTool(name: string, input: Record<string, unknown>): Promise<string> {
+async function executeTool(
+  name: string,
+  input: Record<string, unknown>,
+  policy?: WorkingDirectoryPolicy
+): Promise<string> {
+  const defaultCwd = policy?.resolvedPath;
   switch (name) {
-    case "search_files":
+    case "search_files": {
+      const searchPath = getStringInput(input, "path") ?? defaultCwd;
+      if (searchPath) assertReadablePath(searchPath, policy);
       return runFileSearch(
         getStringInput(input, "pattern") ?? "",
         (getStringInput(input, "type") as "glob" | "content") ?? "content",
-        getStringInput(input, "path")
+        searchPath
       );
-    case "read_file":
-      return runFileRead(getStringInput(input, "path") ?? "");
-    case "apply_patch":
-      return runPatch(getStringInput(input, "path") ?? "", getStringInput(input, "patch") ?? "");
-    case "run_shell":
-      return runShell(getStringInput(input, "command") ?? "", getStringInput(input, "cwd"));
+    }
+    case "read_file": {
+      const filePath = getStringInput(input, "path") ?? "";
+      assertReadablePath(filePath, policy);
+      return runFileRead(filePath);
+    }
+    case "apply_patch": {
+      const patchPath = getStringInput(input, "path") ?? "";
+      assertWritablePath(patchPath, policy);
+      return runPatch(patchPath, getStringInput(input, "patch") ?? "");
+    }
+    case "run_shell": {
+      const cwd = getStringInput(input, "cwd") ?? defaultCwd;
+      if (cwd) assertExecutableCwd(cwd, policy);
+      return runShell(getStringInput(input, "command") ?? "", cwd);
+    }
     default:
       throw new Error(`Unknown tool: ${name}`);
   }

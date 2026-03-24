@@ -40,7 +40,9 @@ export type SessionEventType =
   | "tool.failed"
   | "message.completed"
   | "heartbeat"
-  | "stop.requested";
+  | "stop.requested"
+  | "policy.validated"
+  | "policy.denied";
 
 // ============================================================
 // Core Domain Interfaces
@@ -100,6 +102,66 @@ export interface SessionState {
 }
 
 // ============================================================
+// Working Directory Policy
+// ============================================================
+
+/**
+ * Access mode for an exposed surface.
+ */
+export type SurfaceAccessMode = "read_only" | "read_write";
+
+/**
+ * An additional filesystem surface exposed to the agent beyond the working directory.
+ */
+export interface ExposedSurface {
+  /** Absolute host path to expose */
+  hostPath: string;
+  /** Access mode for this surface */
+  mode: SurfaceAccessMode;
+  /** Human-readable label for audit/display */
+  label?: string;
+}
+
+/**
+ * Runtime mode for the agent.
+ */
+export type RuntimeMode = "local" | "docker";
+
+/**
+ * Server-normalized working directory policy persisted in session metadata.
+ * Returned to agent on claim for enforcement.
+ */
+export interface WorkingDirectoryPolicy {
+  /** Original user-provided path input */
+  inputPath: string;
+  /** Server-resolved canonical absolute path */
+  resolvedPath: string;
+  /** Runtime mode */
+  runtimeMode: RuntimeMode;
+  /** Additional exposed surfaces beyond the working directory */
+  exposedSurfaces: ExposedSurface[];
+}
+
+/**
+ * Machine-readable reason codes for working directory validation failures.
+ */
+export type WorkdirErrorCode =
+  | "WORKDIR_NOT_FOUND"
+  | "WORKDIR_NOT_DIRECTORY"
+  | "WORKDIR_NOT_ALLOWED"
+  | "EXPOSED_SURFACE_NOT_ALLOWED";
+
+/**
+ * Structured validation error for working directory failures.
+ */
+export interface WorkdirValidationError {
+  code: WorkdirErrorCode;
+  message: string;
+  /** The path that caused the failure */
+  path?: string;
+}
+
+// ============================================================
 // API DTOs
 // ============================================================
 
@@ -108,6 +170,10 @@ export interface CreateSessionRequest {
   goal: string;
   agentType?: string;
   metadata?: Record<string, unknown>;
+  /** Optional working directory for the agent session */
+  workingDirectory?: string;
+  /** Optional additional exposed surfaces */
+  exposedSurfaces?: ExposedSurface[];
 }
 
 export interface CreateSessionResponse {

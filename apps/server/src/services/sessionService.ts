@@ -11,19 +11,31 @@ import type {
   SessionStatus,
   AttemptStatus,
 } from "@humanlayer/shared";
+import { validateWorkingDirectory } from "./workdirPolicyService.js";
 
 export async function createSession(
   input: CreateSessionRequest,
   db: PrismaClient = defaultPrisma
 ) {
+  // Validate and canonicalize working directory if provided
+  let metadata: Record<string, unknown> = input.metadata ? { ...input.metadata } : {};
+
+  if (input.workingDirectory) {
+    const policy = await validateWorkingDirectory(
+      input.workingDirectory,
+      input.exposedSurfaces
+    );
+    metadata.workdirPolicy = policy;
+  }
+
   return db.$transaction(async (tx) => {
     const session = await tx.session.create({
       data: {
         status: "created",
         goal: input.goal,
         agentType: input.agentType ?? "default",
-        metadata: input.metadata
-          ? (input.metadata as Prisma.InputJsonValue)
+        metadata: Object.keys(metadata).length > 0
+          ? (metadata as Prisma.InputJsonValue)
           : Prisma.JsonNull,
       },
     });

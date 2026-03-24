@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api.js";
+import type { ExposedSurface } from "@humanlayer/shared";
 
 export function NewSessionPage() {
   const navigate = useNavigate();
   const [goal, setGoal] = useState("");
   const [context, setContext] = useState("");
+  const [workingDirectory, setWorkingDirectory] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -14,7 +16,11 @@ export function NewSessionPage() {
     setSubmitting(true);
     setError(null);
     try {
-      const res = await api.sessions.create({ goal: goal.trim(), metadata: context ? { context } : undefined });
+      const res = await api.sessions.create({
+        goal: goal.trim(),
+        metadata: context ? { context } : undefined,
+        workingDirectory: workingDirectory.trim() || undefined,
+      });
       navigate(`/sessions/${res.session.id}`);
     } catch (err) {
       setError(String(err));
@@ -85,6 +91,29 @@ export function NewSessionPage() {
                 fontSize: 14,
                 fontFamily: "Inter, sans-serif",
                 resize: "vertical",
+                outline: "none",
+                width: "100%",
+                boxSizing: "border-box",
+              }}
+            />
+          </div>
+
+          {/* Working directory */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <label style={{ color: "#64748B", fontSize: 11, fontWeight: 600, letterSpacing: 2 }}>WORKING DIRECTORY</label>
+            <input
+              type="text"
+              value={workingDirectory}
+              onChange={(e) => setWorkingDirectory(e.target.value)}
+              placeholder="Optional: /path/to/project (absolute path)"
+              style={{
+                background: "#0F172A",
+                border: "1px solid #1E293B",
+                borderRadius: 8,
+                padding: "12px 16px",
+                color: "#fff",
+                fontSize: 14,
+                fontFamily: "'JetBrains Mono', monospace",
                 outline: "none",
                 width: "100%",
                 boxSizing: "border-box",

@@ -211,6 +211,52 @@ async function evalSafety() {
   });
 }
 
+async function evalWorkdir() {
+  console.log("\n[Working Directory Policy]");
+
+  await run("WD-01", "Create session with workingDirectory stores policy in metadata", "lifecycle", true, async () => {
+    // Use /tmp as allowed root (default config)
+    try {
+      const { session } = await apiPost<{ session: { id: string; metadata?: Record<string, unknown> } }>("/sessions", {
+        goal: "workdir eval test",
+        workingDirectory: "/tmp",
+      });
+      const detail = await apiGet<{ session: { metadata?: Record<string, unknown> } }>(`/sessions/${session.id}`);
+      const meta = detail.session.metadata as Record<string, unknown> | undefined;
+      const policy = meta?.workdirPolicy as Record<string, unknown> | undefined;
+      return {
+        passed: !!policy && !!policy.resolvedPath && !!policy.runtimeMode,
+        notes: policy ? `resolvedPath=${policy.resolvedPath}` : "No policy in metadata",
+      };
+    } catch (err) {
+      return { passed: false, notes: `Error: ${String(err)} — server may not have /tmp in WORKDIR_ALLOWED_ROOTS` };
+    }
+  });
+
+  await run("WD-02", "Create session without workingDirectory succeeds (backward compat)", "lifecycle", true, async () => {
+    const { session } = await apiPost<{ session: { id: string; status: string } }>("/sessions", {
+      goal: "no workdir eval test",
+    });
+    return { passed: session.status === "created", notes: "No workingDirectory → created normally" };
+  });
+
+  await run("WD-03", "Create session with invalid workingDirectory returns reason code", "safety", true, async () => {
+    try {
+      await apiPost("/sessions", {
+        goal: "invalid workdir eval test",
+        workingDirectory: "/nonexistent/path/that/does/not/exist",
+      });
+      return { passed: false, notes: "Should have rejected nonexistent path" };
+    } catch (err) {
+      const msg = String(err);
+      return {
+        passed: msg.includes("WORKDIR_NOT_FOUND") || msg.includes("WORKDIR_NOT_ALLOWED"),
+        notes: `Rejected with: ${msg.slice(0, 200)}`,
+      };
+    }
+  });
+}
+
 async function evalEfficiency() {
   console.log("\n[Efficiency / Latency]");
 
@@ -252,6 +298,7 @@ async function main() {
   await evalEvent();
   await evalStop();
   await evalSafety();
+  await evalWorkdir();
   await evalEfficiency();
 
   const totalMs = Date.now() - startTime;

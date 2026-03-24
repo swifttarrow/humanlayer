@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import { pullSession } from "./api.js";
 import { runStepLoop } from "./runner/stepLoop.js";
+import type { WorkingDirectoryPolicy } from "@humanlayer/shared";
 
 const AGENT_ID = process.env.AGENT_ID ?? `agent-${randomUUID().slice(0, 8)}`;
 const POLL_INTERVAL_MS = parseInt(process.env.POLL_INTERVAL_MS ?? "5000", 10);
@@ -30,11 +31,16 @@ async function pollAndRun() {
     running++;
 
     try {
+      // Extract workdir policy from session metadata if present
+      const metadata = session.metadata as Record<string, unknown> | undefined;
+      const workdirPolicy = metadata?.workdirPolicy as WorkingDirectoryPolicy | undefined;
+
       const outcome = await runStepLoop({
         sessionId: session.id,
         attemptId: attempt.id,
         agentId: AGENT_ID,
         goal: session.goal,
+        workdirPolicy,
       });
       console.log(`[agent] Session ${session.id} finished: ${outcome.outcome}`);
     } finally {

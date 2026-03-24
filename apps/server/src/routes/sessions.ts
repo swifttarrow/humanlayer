@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
+import { WorkdirValidationError } from "../services/workdirPolicyService.js";
 import {
   createSession,
   listSessions,
@@ -10,10 +11,18 @@ import {
 
 export const sessionsRouter = Router();
 
+const ExposedSurfaceSchema = z.object({
+  hostPath: z.string().min(1),
+  mode: z.enum(["read_only", "read_write"]),
+  label: z.string().optional(),
+});
+
 const CreateSessionSchema = z.object({
   goal: z.string().min(1),
   agentType: z.string().optional(),
   metadata: z.record(z.unknown()).optional(),
+  workingDirectory: z.string().optional(),
+  exposedSurfaces: z.array(ExposedSurfaceSchema).optional(),
 });
 
 const StopSessionSchema = z.object({
@@ -31,6 +40,14 @@ sessionsRouter.post("/", async (req, res) => {
     const session = await createSession(parsed.data);
     res.status(201).json({ session });
   } catch (err) {
+    if (err instanceof WorkdirValidationError) {
+      res.status(422).json({
+        error: err.message,
+        code: err.code,
+        path: err.path,
+      });
+      return;
+    }
     res.status(500).json({ error: String(err) });
   }
 });

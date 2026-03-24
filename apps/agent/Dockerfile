@@ -16,6 +16,10 @@ RUN npm run build --workspace=apps/agent
 
 # ---- Runtime ----
 FROM node:20-alpine AS runtime
+
+# Create non-root user for agent execution
+RUN addgroup -S agent && adduser -S agent -G agent
+
 WORKDIR /app
 
 COPY --from=base /app/node_modules ./node_modules
@@ -24,9 +28,14 @@ COPY --from=base /app/packages/shared/package.json ./packages/shared/package.jso
 COPY --from=base /app/apps/agent/dist ./apps/agent/dist
 COPY --from=base /app/apps/agent/package.json ./apps/agent/package.json
 
+# Create workspace mount point with agent ownership
+RUN mkdir -p /workspace && chown agent:agent /workspace
+
 WORKDIR /app/apps/agent
 
 ENV NODE_ENV=production
 # No EXPOSE — agent is outbound-only, no inbound ports
+
+USER agent
 
 CMD ["node", "dist/apps/agent/src/main.js"]

@@ -25,6 +25,8 @@ services:
       LEASE_DURATION_SECONDS: 60
       LEASE_SWEEP_INTERVAL_MS: 30000
       NODE_ENV: production
+      WORKDIR_ALLOWED_ROOTS: ${WORKDIR_ALLOWED_ROOTS:-/workspace,/tmp}
+      RUNTIME_MODE: ${RUNTIME_MODE:-docker}
     command: >
       sh -c "npx prisma migrate deploy && node dist/apps/server/src/index.js"
     restart: unless-stopped
@@ -44,7 +46,14 @@ services:
       AGENT_MODEL: gpt-4.1-mini
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       NODE_ENV: production
+      RUNTIME_MODE: docker
+    volumes:
+      - ${WORKSPACE_PATH:-./_workspace}:/workspace
+    working_dir: /workspace
     # No ports — outbound-only
+    read_only: true
+    tmpfs:
+      - /tmp:size=100M
     restart: unless-stopped
 
   ui:
