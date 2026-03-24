@@ -24,7 +24,7 @@ We need a system where:
 
 * the agent runs independently from the UI
 * the server is the source of truth for session state
-* users can watch the agent’s work as it happens
+* users can watch the agent's work as it happens
 * stop/retry behavior is explicit and reliable enough for real use
 * past sessions remain inspectable for debugging and evaluation
 
@@ -82,7 +82,7 @@ They care about:
 
 ### 1. Correctness over cleverness
 
-The system should prefer a simple model that is easy to reason about over a more “real-time” or “distributed” design that is harder to make trustworthy.
+The system should prefer a simple model that is easy to reason about over a more "real-time" or "distributed" design that is harder to make trustworthy.
 
 ### 2. Structured visibility over raw verbosity
 
