@@ -21,8 +21,8 @@ Create the monorepo skeleton, baseline tooling, and shared types/status enums so
 - [x] `npm run lint`
 
 ### Manual Verification
-- [ ] Workspace builds with no missing references
-- [ ] Shared status/event types imported in all apps
+- [x] Workspace builds with no missing references
+- [x] Shared status/event types imported in all apps
 
 ## Tasks
 - [001-scaffold-workspace-and-apps](./001-scaffold-workspace-and-apps.md)

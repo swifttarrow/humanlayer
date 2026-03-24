@@ -16,9 +16,9 @@ Implement core persistence and correctness model first: sessions, attempts, leas
 ## Success Criteria
 
 ### Automated Verification
-- [ ] `npm run db:migrate`
-- [ ] `npm run test --workspace=apps/server`
-- [ ] `npm run typecheck --workspace=apps/server`
+- [x] `npm run db:migrate`
+- [x] `npm run test --workspace=apps/server`
+- [x] `npm run typecheck --workspace=apps/server`
 
 ### Manual Verification
 - [ ] Create session survives server restart

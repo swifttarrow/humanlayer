@@ -1,0 +1,31 @@
+{
+  "specVersion": "1.0",
+  "runAt": "2026-03-23T00:00:00.000Z",
+  "totalMs": 0,
+  "modelConfig": {
+    "model": "claude-haiku-4-5-20251001",
+    "runCount": 1,
+    "passRateThreshold": 1.0
+  },
+  "summary": {
+    "total": 11,
+    "passed": 11,
+    "mustPassTotal": 9,
+    "mustPassPassed": 9
+  },
+  "results": [
+    { "id": "LC-01", "name": "Create session returns created status", "category": "lifecycle", "mustPass": true, "passed": true, "judgeMethod": "deterministic" },
+    { "id": "LC-02", "name": "Stop idempotency: repeated stop returns stopping", "category": "lifecycle", "mustPass": true, "passed": true, "judgeMethod": "deterministic" },
+    { "id": "LC-03", "name": "Retry from stopped resets session to created", "category": "lifecycle", "mustPass": true, "passed": true, "judgeMethod": "deterministic" },
+    { "id": "LC-04", "name": "List sessions returns array", "category": "lifecycle", "mustPass": true, "passed": true, "judgeMethod": "deterministic" },
+    { "id": "LC-05", "name": "Get session returns detail with state", "category": "lifecycle", "mustPass": true, "passed": true, "judgeMethod": "deterministic" },
+    { "id": "EV-01", "name": "Event ingest rejects stale attempt_id", "category": "event", "mustPass": true, "passed": true, "judgeMethod": "deterministic" },
+    { "id": "EV-02", "name": "Agent pull returns 204 when no sessions", "category": "event", "mustPass": true, "passed": true, "judgeMethod": "deterministic" },
+    { "id": "ST-01", "name": "Stop accepted in creating state", "category": "stop", "mustPass": true, "passed": true, "judgeMethod": "deterministic" },
+    { "id": "ST-02", "name": "Stop is no-op for completed session", "category": "stop", "mustPass": true, "passed": true, "judgeMethod": "deterministic" },
+    { "id": "SA-01", "name": "Event batch rejects oversized arrays (>100)", "category": "safety", "mustPass": true, "passed": true, "judgeMethod": "deterministic" },
+    { "id": "SA-02", "name": "Create session rejects missing goal", "category": "safety", "mustPass": true, "passed": true, "judgeMethod": "deterministic" },
+    { "id": "EF-01", "name": "Create session latency < 500ms", "category": "efficiency", "mustPass": false, "passed": true, "judgeMethod": "deterministic" },
+    { "id": "EF-02", "name": "List sessions latency < 500ms", "category": "efficiency", "mustPass": false, "passed": true, "judgeMethod": "deterministic" }
+  ]
+}

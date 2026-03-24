@@ -4,7 +4,7 @@
 Close MVP with operational reliability requirements, explicit eval gates, and demo-ready packaging.
 
 ## Dependencies
-- [ ] Milestone 4: `m4-realtime-ui-create-list-detail-stop-retry`
+- [x] Milestone 4: `m4-realtime-ui-create-list-detail-stop-retry`
 
 ## Changes Required
 - Add lease sweeper job to detect expired leases and mark sessions/attempts recoverably.
@@ -16,12 +16,12 @@ Close MVP with operational reliability requirements, explicit eval gates, and de
 ## Success Criteria
 
 ### Automated Verification
-- [ ] `docker compose up --build`
-- [ ] `npm run test`
-- [ ] `npm run eval:mvp`
-- [ ] Lint/typecheck pass across all workspaces
-- [ ] Eval run enforces no-regression gate against baseline for must-pass scenarios
-- [ ] Eval run reports latency/error/cost budget checks
+- [x] `docker compose up --build`
+- [x] `npm run test`
+- [x] `npm run eval:mvp`
+- [x] Lint/typecheck pass across all workspaces
+- [x] Eval run enforces no-regression gate against baseline for must-pass scenarios
+- [x] Eval run reports latency/error/cost budget checks
 
 ### Manual Verification
 - [ ] Full demo flow: create -> run -> observe trace -> stop/retry -> inspect history

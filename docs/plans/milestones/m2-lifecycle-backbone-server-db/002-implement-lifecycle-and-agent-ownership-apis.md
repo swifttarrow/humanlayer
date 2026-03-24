@@ -4,8 +4,8 @@
 Build server routes for session lifecycle and agent coordination with strict input validation.
 
 ## Deliverables
-- [ ] `apps/server/src/routes/sessions.ts` supports create/list/detail/stop/retry with Zod-validated inputs
-- [ ] `apps/server/src/routes/agents.ts` supports pull and heartbeat with explicit attempt-ownership responses
+- [x] `apps/server/src/routes/sessions.ts` supports create/list/detail/stop/retry with Zod-validated inputs
+- [x] `apps/server/src/routes/agents.ts` supports pull and heartbeat with explicit attempt-ownership responses
 
 ## Notes
 Stop and retry handlers should be idempotent and compatible with lease/state rules enforced in services.
