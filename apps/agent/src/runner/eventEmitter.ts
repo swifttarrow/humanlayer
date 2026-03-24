@@ -2,6 +2,8 @@ import { randomUUID } from "crypto";
 import type { SessionEvent, SessionEventType } from "@humanlayer/shared";
 import { ingestEvents } from "../api.js";
 
+const MAX_INGEST_BATCH_SIZE = 100;
+
 export interface EmitterContext {
   sessionId: string;
   attemptId: string;
@@ -47,8 +49,11 @@ export class EventEmitter {
 
   async flush(): Promise<void> {
     if (this.buffer.length === 0) return;
-    const toSend = [...this.buffer];
-    this.buffer = [];
-    await ingestEvents(this.ctx.sessionId, this.ctx.attemptId, toSend);
+    while (this.buffer.length > 0) {
+      const chunk = this.buffer.slice(0, MAX_INGEST_BATCH_SIZE);
+      await ingestEvents(this.ctx.sessionId, this.ctx.attemptId, chunk);
+      // Drop only confirmed chunks so failures preserve unsent events for retry.
+      this.buffer.splice(0, chunk.length);
+    }
   }
 }
