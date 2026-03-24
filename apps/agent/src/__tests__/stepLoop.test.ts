@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { mkdtemp, mkdir, rm, symlink } from "fs/promises";
+import { mkdtemp, mkdir, rm, symlink, writeFile } from "fs/promises";
 import path from "path";
 import os from "os";
 
@@ -84,6 +84,10 @@ describe("runStepLoop", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
+    vi.stubEnv("MAX_STEPS", "20");
+    vi.stubEnv("EXPLORATION_MAX_STEPS", "8");
+    vi.stubEnv("EXPLORATION_MAX_READS", "10");
+    vi.stubEnv("EXPLORATION_MAX_SEARCHES", "8");
     vi.stubEnv("OPENAI_RETRY_BASE_MS", "0");
     vi.stubEnv("OPENAI_RETRY_MAX_MS", "0");
     vi.stubEnv("OPENAI_MAX_RETRIES", "3");
@@ -92,6 +96,7 @@ describe("runStepLoop", () => {
     mockListSessionEvents.mockResolvedValue({ events: [] });
     mockRunFileSearch.mockResolvedValue("file.ts");
     mockRunPatch.mockResolvedValue("Patched successfully.");
+    mockRunShell.mockResolvedValue("(no output)");
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
@@ -170,6 +175,48 @@ describe("runStepLoop", () => {
     expect(mockListSessionEvents).toHaveBeenCalledWith("sess-restart");
   });
 
+  it("continues step numbers from parent session for follow-up sessions", async () => {
+    mockListSessionEvents.mockImplementation(async (sessionId: string) => {
+      if (sessionId === "sess-parent") {
+        return {
+          events: [
+            {
+              id: "evt-parent",
+              sessionId: "sess-parent",
+              attemptId: "att-parent",
+              sequenceNumber: 1,
+              eventType: "step.started",
+              eventTime: new Date().toISOString(),
+              actorType: "agent",
+              payload: { stepNumber: 10 },
+              isTerminal: false,
+              visibility: "user_visible",
+              schemaVersion: "1.0",
+            },
+          ],
+        };
+      }
+      return { events: [] };
+    });
+
+    const result = await runStepLoop({
+      ...baseOpts,
+      sessionId: "sess-followup-child",
+      attemptId: "att-followup",
+      parentSessionId: "sess-parent",
+    });
+    expect(result.outcome).toBe("completed");
+
+    const stepStartedEvents = mockIngestEvents.mock.calls
+      .flatMap((call) => call[2] as Array<{ eventType: string; payload: Record<string, unknown> }>)
+      .filter((event) => event.eventType === "step.started")
+      .map((event) => event.payload.stepNumber);
+
+    expect(stepStartedEvents).toContain(11);
+    expect(mockListSessionEvents).toHaveBeenCalledWith("sess-followup-child");
+    expect(mockListSessionEvents).toHaveBeenCalledWith("sess-parent");
+  });
+
   it("emits session.stopped when stop is requested on first heartbeat", async () => {
     mockHeartbeat.mockResolvedValue({ leaseExpiresAt: new Date().toISOString(), stopRequested: true });
     const result = await runStepLoop(baseOpts);
@@ -188,6 +235,65 @@ describe("runStepLoop", () => {
     const result = await runStepLoop(baseOpts);
     expect(result.outcome).toBe("failed");
     expect(result.error).toContain("OpenAI chat.completions failed");
+  });
+
+  it("fails when OpenAI request exceeds timeout", async () => {
+    vi.stubEnv("OPENAI_MAX_RETRIES", "0");
+    vi.stubEnv("OPENAI_REQUEST_TIMEOUT_MS", "5");
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_url: string, init?: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          const signal = init?.signal as AbortSignal | undefined;
+          if (!signal) return;
+          if (signal.aborted) {
+            const abortErr = new Error("aborted");
+            abortErr.name = "AbortError";
+            reject(abortErr);
+            return;
+          }
+          signal.addEventListener(
+            "abort",
+            () => {
+              const abortErr = new Error("aborted");
+              abortErr.name = "AbortError";
+              reject(abortErr);
+            },
+            { once: true }
+          );
+        })
+      )
+    );
+
+    const result = await runStepLoop(baseOpts);
+    expect(result.outcome).toBe("failed");
+    expect(result.error).toContain("timed out");
+  });
+
+  it("fails when OpenAI stream is idle beyond timeout", async () => {
+    vi.stubEnv("OPENAI_MAX_RETRIES", "0");
+    vi.stubEnv("OPENAI_STREAM_IDLE_TIMEOUT_MS", "5");
+
+    const stalledBody = new ReadableStream<Uint8Array>({
+      start() {
+        // Intentionally emit nothing and never close.
+      },
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        body: stalledBody,
+        text: async () => "",
+      })
+    );
+
+    const result = await runStepLoop(baseOpts);
+    expect(result.outcome).toBe("failed");
+    expect(result.error).toContain("stream idle timeout");
   });
 
   it("retries on 429 and succeeds on a later attempt", async () => {
@@ -579,11 +685,28 @@ describe("runStepLoop", () => {
           JSON.stringify(makeToolUseResponse("read_file", { path: `/tmp/file${i}.ts` })),
       });
     }
-    // Then text completion
+    // Then prose-only response (which should trigger a nudge to use tools)
     fetchMock.mockResolvedValueOnce({
       ok: true,
       status: 200,
       text: async () => JSON.stringify(makeTextResponse("Done.")),
+    });
+    // Then a write and terminal prose completion
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify(
+          makeToolUseResponse("apply_patch", {
+            path: "/tmp/file3.ts",
+            patch: "@@ -1,1 +1,1 @@\n-old\n+new",
+          })
+        ),
+    });
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify(makeTextResponse("Done after patch.")),
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -599,6 +722,46 @@ describe("runStepLoop", () => {
         uncertaintyCategory: expect.stringMatching(/missing_context|ambiguous_target/),
       })
     );
+  });
+
+  it("does not allow terminal prose-only completion after repeated exploration without write", async () => {
+    vi.stubEnv("MAX_STEPS", "4");
+    vi.stubEnv("EXPLORATION_MAX_STEPS", "100");
+    vi.stubEnv("EXPLORATION_MAX_READS", "100");
+    vi.stubEnv("EXPLORATION_MAX_SEARCHES", "100");
+    mockRunFileRead.mockResolvedValue("file contents");
+
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        // Step 1-3: exploration only
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify(makeToolUseResponse("read_file", { path: "/tmp/a.ts" })),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify(makeToolUseResponse("read_file", { path: "/tmp/b.ts" })),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify(makeToolUseResponse("read_file", { path: "/tmp/c.ts" })),
+        })
+        // Step 4: prose-only response; loop should not terminal-complete
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify(makeTextResponse("Here is a snippet you can use.")),
+        })
+    );
+
+    const result = await runStepLoop({ ...baseOpts, sessionId: "sess-nowrite-no-terminal" });
+    expect(result.outcome).toBe("blocked");
+    expect(result.blockedReason).toBe("no_credible_target");
   });
 
   it("transitions from exploring to editing when write tool is used", async () => {
@@ -755,5 +918,116 @@ describe("runStepLoop", () => {
     const result = await runStepLoop({ ...baseOpts, sessionId: "sess-maxstep-nowrite" });
     expect(result.outcome).toBe("blocked");
     expect(result.blockedReason).toBe("no_credible_target");
+  });
+
+  it("runs inferred validation command after write before completion", async () => {
+    const rootTmp = await mkdtemp(path.join(os.tmpdir(), "step-loop-infer-"));
+    const projectDir = path.join(rootTmp, "project");
+    await mkdir(projectDir);
+    await writeFile(
+      path.join(projectDir, "package.json"),
+      JSON.stringify({
+        name: "tmp-project",
+        private: true,
+        scripts: {
+          typecheck: "echo typecheck",
+        },
+      }),
+      "utf-8"
+    );
+
+    const policy: WorkingDirectoryPolicy = {
+      inputPath: projectDir,
+      resolvedPath: projectDir,
+      runtimeMode: "local",
+      exposedSurfaces: [],
+    };
+
+    mockRunPatch.mockResolvedValue("Patched successfully.");
+    mockRunShell.mockResolvedValue("(validation ok)");
+
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: async () =>
+            JSON.stringify(
+              makeToolUseResponse("apply_patch", {
+                path: path.join(projectDir, "src/main.ts"),
+                patch: "@@ -1,1 +1,1 @@\n-old\n+new",
+              })
+            ),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify(makeTextResponse("Done.")),
+        })
+    );
+
+    try {
+      const result = await runStepLoop({ ...baseOpts, sessionId: "sess-infer-validation", workdirPolicy: policy });
+      expect(result.outcome).toBe("completed");
+      expect(mockRunShell).toHaveBeenCalledWith("npm run typecheck", projectDir);
+    } finally {
+      await rm(rootTmp, { recursive: true, force: true });
+    }
+  });
+
+  it("skips inferred validation when no package scripts are found", async () => {
+    const rootTmp = await mkdtemp(path.join(os.tmpdir(), "step-loop-infer-"));
+    const projectDir = path.join(rootTmp, "project");
+    await mkdir(projectDir);
+    await writeFile(
+      path.join(projectDir, "package.json"),
+      JSON.stringify({
+        name: "tmp-project",
+        private: true,
+        scripts: {},
+      }),
+      "utf-8"
+    );
+
+    const policy: WorkingDirectoryPolicy = {
+      inputPath: projectDir,
+      resolvedPath: projectDir,
+      runtimeMode: "local",
+      exposedSurfaces: [],
+    };
+
+    mockRunPatch.mockResolvedValue("Patched successfully.");
+
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: async () =>
+            JSON.stringify(
+              makeToolUseResponse("apply_patch", {
+                path: path.join(projectDir, "src/main.ts"),
+                patch: "@@ -1,1 +1,1 @@\n-old\n+new",
+              })
+            ),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify(makeTextResponse("Done.")),
+        })
+    );
+
+    try {
+      const result = await runStepLoop({ ...baseOpts, sessionId: "sess-infer-skip", workdirPolicy: policy });
+      expect(result.outcome).toBe("completed");
+      expect(mockRunShell).not.toHaveBeenCalled();
+    } finally {
+      await rm(rootTmp, { recursive: true, force: true });
+    }
   });
 });

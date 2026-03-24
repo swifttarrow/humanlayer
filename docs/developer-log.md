@@ -121,3 +121,12 @@ Use this format for new entries:
 **Impact:** Shared contracts, agent step loop, server derived-state logic, UI traces, and evals must all support exploration/edit/validation phases and blocked terminal summaries.  
 **Owner:** Agent (Codex) with developer confirmation
 
+## [2026-03-24] Deterministic apply_patch recovery for missing target files
+
+**Context:** Sessions can fail first-write edits when `apply_patch` targets a file that does not yet exist, leading to avoidable ENOENT tool failures and model confusion about write permissions.  
+**Options considered:** Rely on model/tool-planning to call `run_shell` (`touch`) before patching vs deterministic patch-tool handling for create-file diffs.  
+**Decision:** Add deterministic missing-file recovery in `runPatch` for create-file unified diffs (`@@ -0,0 +... @@`) while preserving failure behavior for non-create patches.  
+**Rationale:** Runtime-level recovery is consistent and testable, avoids model-dependent behavior, and keeps safety by not silently creating files for non-create edits.  
+**Impact:** First-write file creation succeeds when patch intent is explicit; non-create missing-file attempts still fail clearly with ENOENT for debuggability.  
+**Owner:** Agent (Codex) with developer confirmation
+

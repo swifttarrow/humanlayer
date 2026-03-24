@@ -100,8 +100,14 @@ export function SessionDetailPage() {
     setError(null);
     try {
       const followupGoal = `Follow-up on session ${id}:\n\n${reply.trim()}`;
+      const metadata = session?.metadata as Record<string, unknown> | undefined;
+      const workdirPolicy = metadata?.workdirPolicy as { resolvedPath?: unknown } | undefined;
+      const inheritedWorkingDirectory = typeof workdirPolicy?.resolvedPath === "string"
+        ? workdirPolicy.resolvedPath
+        : undefined;
       const res = await api.sessions.create({
         goal: followupGoal,
+        ...(inheritedWorkingDirectory ? { workingDirectory: inheritedWorkingDirectory } : {}),
         metadata: {
           parentSessionId: id,
           followup: true,

@@ -66,6 +66,50 @@ describe("createSession", () => {
     );
     expect(result.status).toBe("created");
   });
+
+  it("inherits workdirPolicy from parent session on follow-up when not provided", async () => {
+    const tx = makeTx();
+    const db = {
+      session: {
+        findUnique: vi.fn().mockResolvedValue({
+          metadata: {
+            workdirPolicy: {
+              inputPath: "/repo",
+              resolvedPath: "/repo",
+              runtimeMode: "local",
+              exposedSurfaces: [],
+            },
+          },
+        }),
+      },
+      $transaction: vi.fn().mockImplementation((fn: (tx: unknown) => Promise<unknown>) => fn(tx)),
+    } as unknown as import("@prisma/client").PrismaClient;
+
+    await createSession(
+      {
+        goal: "followup",
+        metadata: {
+          parentSessionId: "sess-parent",
+          followup: true,
+        },
+      },
+      db
+    );
+
+    expect(tx.session.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          metadata: expect.objectContaining({
+            parentSessionId: "sess-parent",
+            followup: true,
+            workdirPolicy: expect.objectContaining({
+              resolvedPath: "/repo",
+            }),
+          }),
+        }),
+      })
+    );
+  });
 });
 
 describe("stopSession", () => {

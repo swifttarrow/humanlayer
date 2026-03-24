@@ -34,12 +34,16 @@ async function pollAndRun() {
       // Extract workdir policy from session metadata if present
       const metadata = session.metadata as Record<string, unknown> | undefined;
       const workdirPolicy = metadata?.workdirPolicy as WorkingDirectoryPolicy | undefined;
+      const parentSessionId = typeof metadata?.parentSessionId === "string"
+        ? metadata.parentSessionId
+        : undefined;
 
       const outcome = await runStepLoop({
         sessionId: session.id,
         attemptId: attempt.id,
         agentId: AGENT_ID,
         goal: session.goal,
+        parentSessionId,
         workdirPolicy,
       });
       console.log(`[agent] Session ${session.id} finished: ${outcome.outcome}`);

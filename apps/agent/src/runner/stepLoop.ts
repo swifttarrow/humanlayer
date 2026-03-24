@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { readFile } from "fs/promises";
 import path from "path";
 import { EventEmitter } from "./eventEmitter.js";
 import { heartbeat, listSessionEvents } from "../api.js";
@@ -176,6 +177,8 @@ export interface StepLoopOptions {
   attemptId: string;
   agentId: string;
   goal: string;
+  /** Parent session id for follow-up runs (used for step-number continuity). */
+  parentSessionId?: string;
   /** Server-resolved working directory policy from session metadata */
   workdirPolicy?: WorkingDirectoryPolicy;
 }
@@ -199,6 +202,8 @@ interface ExplorationTracker {
   patchFailed: boolean;
   inRetryLoop: boolean;
   lastHypothesis?: EditReadinessHypothesis;
+  needsValidation: boolean;
+  validationAttempts: number;
 }
 
 function createExplorationTracker(): ExplorationTracker {
@@ -212,6 +217,8 @@ function createExplorationTracker(): ExplorationTracker {
     patchAttempts: 0,
     patchFailed: false,
     inRetryLoop: false,
+    needsValidation: false,
+    validationAttempts: 0,
   };
 }
 
@@ -298,7 +305,7 @@ export async function runStepLoop(opts: StepLoopOptions): Promise<StepLoopResult
     {
       role: "system",
       content:
-        "You are a coding agent. Complete tasks step by step using tools. Search and read relevant files before making edits. Validate changes after applying them.",
+        "You are a coding agent. Complete tasks step by step using tools. Search and read relevant files before making edits. Validate changes after applying them. If the working directory is empty or missing project files and the task asks to build an app/feature, bootstrap a minimal runnable project scaffold in-place using tools (run_shell and/or apply_patch), then continue implementation.",
     },
     {
       role: "user",
@@ -324,7 +331,7 @@ export async function runStepLoop(opts: StepLoopOptions): Promise<StepLoopResult
   await emitter.flush();
 
   let runStepCount = 0;
-  let stepCount = await getStartingStepCount(opts.sessionId);
+  let stepCount = await getStartingStepCount(opts.sessionId, opts.parentSessionId);
   let summary = "";
   const tracker = createExplorationTracker();
 
@@ -382,6 +389,62 @@ export async function runStepLoop(opts: StepLoopOptions): Promise<StepLoopResult
       }
 
       if (toolCalls.length === 0) {
+        if (!tracker.writeAttempted && tracker.consecutiveExplorationSteps >= HYPOTHESIS_THRESHOLD) {
+          messages.push({
+            role: "system",
+            content:
+              "You must use tools before finishing. If no suitable files exist, bootstrap a minimal project scaffold in the working directory and then implement the requested task.",
+          });
+          emitter.emit(
+            "step.completed",
+            { stepNumber: stepCount },
+            { stepId, correlationId }
+          );
+          await emitter.flush();
+          continue;
+        }
+
+        if (tracker.needsValidation) {
+          const validation = await runInferredValidation(opts.workdirPolicy, stepId, correlationId, emitter);
+          if (validation.status === "failed") {
+            tracker.validationAttempts++;
+            if (tracker.validationAttempts >= 2) {
+              emitter.emit("session.blocked", {
+                reason: "patch_not_validated" as BlockedReason,
+                phase: "validating" as SessionPhase,
+                writeAttempted: true,
+                summary: "Validation failed after inferred retry",
+                explorationBudget: getBudgetState(tracker),
+              }, { isTerminal: true });
+              await emitter.flush();
+              clearInterval(heartbeatTimer);
+              return {
+                outcome: "blocked",
+                summary: "Validation failed after inferred retry",
+                blockedReason: "patch_not_validated",
+              };
+            }
+
+            const validationHeader = validation.command
+              ? `Inferred validation failed: ${validation.command}`
+              : "Inferred validation failed";
+            messages.push({
+              role: "system",
+              content: `${validationHeader}\n${validation.output?.slice(0, 1500) ?? "(no output)"}\nFix the issue, then continue with tools.`,
+            });
+            emitter.emit(
+              "step.completed",
+              { stepNumber: stepCount },
+              { stepId, correlationId }
+            );
+            await emitter.flush();
+            continue;
+          }
+
+          // Either validation passed, or no command could be inferred (skip).
+          tracker.needsValidation = false;
+        }
+
         emitter.emit(
           "step.completed",
           { stepNumber: stepCount, terminal: true },
@@ -447,6 +510,7 @@ export async function runStepLoop(opts: StepLoopOptions): Promise<StepLoopResult
           stepHasWrite = true;
           stepHasExplorationOnly = false;
           tracker.writeAttempted = true;
+          tracker.needsValidation = !isError;
           tracker.patchAttempts++;
           if (isError) {
             tracker.patchFailed = true;
@@ -586,7 +650,19 @@ export async function runStepLoop(opts: StepLoopOptions): Promise<StepLoopResult
   }
 }
 
-async function getStartingStepCount(sessionId: string): Promise<number> {
+function getMaxStartedStep(events: Array<{ eventType: string; payload: Record<string, unknown> }>): number {
+  return events.reduce((max, event) => {
+    if (event.eventType !== "step.started") return max;
+    const rawStep = event.payload.stepNumber;
+    const stepNumber = typeof rawStep === "number" ? rawStep : Number(rawStep);
+    return Number.isFinite(stepNumber) ? Math.max(max, stepNumber) : max;
+  }, 0);
+}
+
+async function getStartingStepCount(
+  sessionId: string,
+  parentSessionId?: string
+): Promise<number> {
   const inMemory = sessionStepCounts.get(sessionId);
   if (typeof inMemory === "number") {
     return inMemory;
@@ -595,14 +671,28 @@ async function getStartingStepCount(sessionId: string): Promise<number> {
   // After process restarts, recover monotonic numbering from persisted history.
   try {
     const { events } = await listSessionEvents(sessionId);
-    const maxPersistedStep = events.reduce((max, event) => {
-      if (event.eventType !== "step.started") return max;
-      const rawStep = event.payload.stepNumber;
-      const stepNumber = typeof rawStep === "number" ? rawStep : Number(rawStep);
-      return Number.isFinite(stepNumber) ? Math.max(max, stepNumber) : max;
-    }, 0);
-    sessionStepCounts.set(sessionId, maxPersistedStep);
-    return maxPersistedStep;
+    const maxPersistedStep = getMaxStartedStep(events);
+    if (maxPersistedStep > 0) {
+      sessionStepCounts.set(sessionId, maxPersistedStep);
+      return maxPersistedStep;
+    }
+
+    // For follow-up sessions (new session IDs), continue numbering from parent session.
+    if (parentSessionId) {
+      const parentInMemory = sessionStepCounts.get(parentSessionId);
+      if (typeof parentInMemory === "number") {
+        sessionStepCounts.set(sessionId, parentInMemory);
+        return parentInMemory;
+      }
+
+      const { events: parentEvents } = await listSessionEvents(parentSessionId);
+      const parentMaxStep = getMaxStartedStep(parentEvents);
+      sessionStepCounts.set(sessionId, parentMaxStep);
+      return parentMaxStep;
+    }
+
+    sessionStepCounts.set(sessionId, 0);
+    return 0;
   } catch {
     // Best-effort fallback: continue from zero if history cannot be fetched.
     return 0;
@@ -623,9 +713,15 @@ async function callOpenAI(
   const maxRetries = getOpenAIMaxRetries();
   const baseDelayMs = getOpenAIRetryBaseMs();
   const maxDelayMs = getOpenAIRetryMaxMs();
+  const requestTimeoutMs = getOpenAIRequestTimeoutMs();
+  const streamIdleTimeoutMs = getOpenAIStreamIdleTimeoutMs();
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     let res: Response;
+    const controller = new AbortController();
+    const requestTimeoutHandle = setTimeout(() => {
+      controller.abort();
+    }, Math.max(1, requestTimeoutMs));
     try {
       res = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
@@ -641,19 +737,26 @@ async function callOpenAI(
           temperature: 0,
           stream: true,
         }),
+        signal: controller.signal,
       });
     } catch (err) {
+      clearTimeout(requestTimeoutHandle);
+      const timedOut = err instanceof Error && err.name === "AbortError";
+      const requestError = timedOut
+        ? `OpenAI request timed out after ${requestTimeoutMs}ms`
+        : String(err);
       const canRetry = attempt < maxRetries;
       if (!canRetry) {
-        throw new Error(`OpenAI chat.completions request failed: ${String(err)}`);
+        throw new Error(`OpenAI chat.completions request failed: ${requestError}`);
       }
       const delayMs = computeRetryDelayMs(attempt, baseDelayMs, maxDelayMs);
       console.warn(
-        `[agent] OpenAI retry ${attempt + 1}/${maxRetries} after request error: ${String(err)} (delay=${delayMs}ms)`
+        `[agent] OpenAI retry ${attempt + 1}/${maxRetries} after request error: ${requestError} (delay=${delayMs}ms)`
       );
       await sleep(delayMs);
       continue;
     }
+    clearTimeout(requestTimeoutHandle);
 
     if (!res.ok) {
       const raw = await res.text();
@@ -670,7 +773,24 @@ async function callOpenAI(
     }
 
     if (res.body) {
-      return parseStreamingChatCompletion(res.body, onTextDelta);
+      try {
+        return await parseStreamingChatCompletion(
+          res.body,
+          onTextDelta,
+          streamIdleTimeoutMs
+        );
+      } catch (err) {
+        const canRetry = attempt < maxRetries;
+        if (!canRetry) {
+          throw new Error(`OpenAI chat.completions stream failed: ${String(err)}`);
+        }
+        const delayMs = computeRetryDelayMs(attempt, baseDelayMs, maxDelayMs);
+        console.warn(
+          `[agent] OpenAI retry ${attempt + 1}/${maxRetries} after stream error: ${String(err)} (delay=${delayMs}ms)`
+        );
+        await sleep(delayMs);
+        continue;
+      }
     }
 
     // Test/mock fallback for non-streaming response objects.
@@ -709,6 +829,14 @@ function getOpenAIRetryMaxMs(): number {
   return parseInt(process.env.OPENAI_RETRY_MAX_MS ?? "10000", 10);
 }
 
+function getOpenAIRequestTimeoutMs(): number {
+  return parseInt(process.env.OPENAI_REQUEST_TIMEOUT_MS ?? "60000", 10);
+}
+
+function getOpenAIStreamIdleTimeoutMs(): number {
+  return parseInt(process.env.OPENAI_STREAM_IDLE_TIMEOUT_MS ?? "30000", 10);
+}
+
 function getRetryAfterMs(res: Response): number | undefined {
   const retryAfter = res.headers?.get?.("retry-after");
   if (!retryAfter) return undefined;
@@ -730,7 +858,8 @@ async function sleep(ms: number): Promise<void> {
 
 async function parseStreamingChatCompletion(
   body: ReadableStream<Uint8Array>,
-  onTextDelta?: (delta: string) => void
+  onTextDelta?: (delta: string) => void,
+  idleTimeoutMs = 30000
 ): Promise<{ content?: string | null; tool_calls?: OpenAIToolCall[] }> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
@@ -790,7 +919,10 @@ async function parseStreamingChatCompletion(
 
   let streamDone = false;
   while (!streamDone) {
-    const { done, value } = await reader.read();
+    const { done, value } = await readWithIdleTimeout(
+      reader,
+      Math.max(1, idleTimeoutMs)
+    );
     if (done) {
       streamDone = true;
       continue;
@@ -819,6 +951,27 @@ async function parseStreamingChatCompletion(
       .sort((a, b) => a[0] - b[0])
       .map(([, toolCall]) => toolCall),
   };
+}
+
+async function readWithIdleTimeout(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  idleTimeoutMs: number
+): Promise<{ done: boolean; value?: Uint8Array }> {
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      reader.read(),
+      new Promise<{ done: boolean; value?: Uint8Array }>((_, reject) => {
+        timeoutHandle = setTimeout(() => {
+          reject(new Error(`OpenAI stream idle timeout after ${idleTimeoutMs}ms`));
+        }, idleTimeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
 }
 
 function parseToolInput(argumentsJson: string): Record<string, unknown> {
@@ -947,5 +1100,109 @@ async function executeTool(
     }
     default:
       throw new Error(`Unknown tool: ${name}`);
+  }
+}
+
+interface ValidationResult {
+  status: "passed" | "failed" | "skipped";
+  command?: string;
+  output?: string;
+}
+
+async function runInferredValidation(
+  policy: WorkingDirectoryPolicy | undefined,
+  stepId: string,
+  correlationId: string,
+  emitter: EventEmitter
+): Promise<ValidationResult> {
+  const inferred = await inferValidationCommand(policy?.resolvedPath);
+  if (!inferred) {
+    return { status: "skipped" };
+  }
+
+  const toolUseId = `inferred-validation-${randomUUID().slice(0, 8)}`;
+  const input: Record<string, unknown> = { command: inferred.command, cwd: inferred.cwd };
+  const toolEventId = emitter.emit(
+    "tool.started",
+    { toolName: "run_shell", toolUseId, input },
+    { stepId, correlationId, actorType: "tool" }
+  );
+
+  try {
+    const output = await executeTool("run_shell", input, policy);
+    const normalizedOutput =
+      typeof output === "string" ? output : String(output ?? "(no output)");
+    const failed = /^Exit code [1-9]\d*:/.test(normalizedOutput);
+    emitter.emit(
+      failed ? "tool.failed" : "tool.completed",
+      {
+        toolName: "run_shell",
+        toolUseId,
+        result: normalizedOutput.slice(0, 2000),
+        parentEventId: toolEventId,
+      },
+      { stepId, correlationId, actorType: "tool" }
+    );
+    return {
+      status: failed ? "failed" : "passed",
+      command: inferred.command,
+      output: normalizedOutput,
+    };
+  } catch (err) {
+    const output = `Error: ${String(err)}`;
+    emitter.emit(
+      "tool.failed",
+      {
+        toolName: "run_shell",
+        toolUseId,
+        result: output.slice(0, 2000),
+        parentEventId: toolEventId,
+      },
+      { stepId, correlationId, actorType: "tool" }
+    );
+    return {
+      status: "failed",
+      command: inferred.command,
+      output,
+    };
+  }
+}
+
+const INFERRED_VALIDATION_SCRIPT_ORDER = ["typecheck", "build", "test", "lint"] as const;
+
+async function inferValidationCommand(
+  startDir?: string
+): Promise<{ command: string; cwd: string } | undefined> {
+  const cwd = path.resolve(startDir ?? process.cwd());
+
+  for (const dir of walkUpDirectories(cwd)) {
+    const packageJsonPath = path.join(dir, "package.json");
+    try {
+      const packageJsonRaw = await readFile(packageJsonPath, "utf-8");
+      const packageJson = JSON.parse(packageJsonRaw) as { scripts?: Record<string, unknown> };
+      const scripts = packageJson.scripts ?? {};
+      for (const scriptName of INFERRED_VALIDATION_SCRIPT_ORDER) {
+        if (typeof scripts[scriptName] === "string") {
+          return {
+            command: `npm run ${scriptName}`,
+            cwd: dir,
+          };
+        }
+      }
+    } catch {
+      // Ignore missing/invalid package.json and continue walking up.
+    }
+  }
+
+  return undefined;
+}
+
+function* walkUpDirectories(start: string): Generator<string> {
+  let current = start;
+  while (true) {
+    yield current;
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    current = parent;
   }
 }

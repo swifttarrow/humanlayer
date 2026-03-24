@@ -7,10 +7,34 @@ import path from "path";
  */
 export async function runPatch(filePath: string, patch: string): Promise<string> {
   const resolved = path.resolve(filePath);
-  const original = await readFile(resolved, "utf-8");
+  const original = await loadOriginalForPatch(resolved, patch);
   const patched = applyUnifiedDiff(original, patch);
   await writeFile(resolved, patched, "utf-8");
   return `Patched ${filePath} successfully.`;
+}
+
+async function loadOriginalForPatch(filePath: string, patch: string): Promise<string> {
+  try {
+    return await readFile(filePath, "utf-8");
+  } catch (err: unknown) {
+    if (
+      err instanceof Error &&
+      "code" in err &&
+      err.code === "ENOENT" &&
+      isCreateFilePatch(patch)
+    ) {
+      return "";
+    }
+    throw err;
+  }
+}
+
+function isCreateFilePatch(patch: string): boolean {
+  const lines = patch.split("\n");
+  const hasCreateHunk = lines.some((line) => /^@@ -0(?:,0)? \+\d+(?:,\d+)? @@/.test(line));
+  if (!hasCreateHunk) return false;
+
+  return lines.every((line) => !line.startsWith("-") || line.startsWith("---"));
 }
 
 /**

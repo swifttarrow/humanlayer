@@ -26,6 +26,17 @@ export async function createSession(
       input.exposedSurfaces
     );
     metadata.workdirPolicy = policy;
+  } else if (!metadata.workdirPolicy && typeof metadata.parentSessionId === "string") {
+    // Follow-up sessions inherit workdir policy from their parent when the caller
+    // does not provide a new workingDirectory override.
+    const parent = await db.session.findUnique({
+      where: { id: metadata.parentSessionId },
+      select: { metadata: true },
+    });
+    const parentMetadata = (parent?.metadata ?? null) as Record<string, unknown> | null;
+    if (parentMetadata?.workdirPolicy) {
+      metadata.workdirPolicy = parentMetadata.workdirPolicy;
+    }
   }
 
   return db.$transaction(async (tx) => {
