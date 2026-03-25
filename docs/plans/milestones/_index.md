@@ -20,10 +20,17 @@
 | 12 | [m12-exploration-state-and-terminal-semantics](./m12-exploration-state-and-terminal-semantics/) | Complete (pending manual verification) |
 | 13 | [m13-runtime-exploration-budget-and-readiness-gate](./m13-runtime-exploration-budget-and-readiness-gate/) | Complete (pending manual verification) |
 | 14 | [m14-tooling-ladder-write-validate-and-observability](./m14-tooling-ladder-write-validate-and-observability/) | Complete (pending manual verification) |
+| 15 | [m15-policy-and-selection-core](./m15-policy-and-selection-core/) | Pending |
+| 16 | [m16-runtime-mode-and-steering](./m16-runtime-mode-and-steering/) | Pending |
+| 17 | [m17-extensible-runtime-core](./m17-extensible-runtime-core/) | Pending |
+| 18 | [m18-cli-and-integrations](./m18-cli-and-integrations/) | Pending |
+| 19 | [m19-workspace-and-repo-customization](./m19-workspace-and-repo-customization/) | Pending |
+| 20 | [m20-validation-and-rollout](./m20-validation-and-rollout/) | Pending |
 
 ## Quick Links
 - [Plan](../mvp.md)
 - [Plan: Working Directory](../2-working-directory.md)
 - [Plan: Exploration/Edit Balance](../3-agent-exploration-and-edit-balance.md)
+- [Plan: Stretch Goals](../4-stretch-goals.md)
 - [Architecture Research](../../research/architecture.md)
 - [Data Model Research](../../research/data-model.md)
