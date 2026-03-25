@@ -135,14 +135,15 @@ function groupStepsByPrompt(steps: Step[]): PromptGroup[] {
 }
 
 function buildStepTitle(step: Step, currentTool?: string): string {
-  const toolNames = Array.from(new Set(step.tools.map((tool) => tool.name).filter(Boolean)));
+  const formatToolName = (name: string) => name.replaceAll("_", " ");
+  const toolNames = Array.from(new Set(step.tools.map((tool) => tool.name).filter(Boolean))).map(formatToolName);
   if (toolNames.length > 0) {
-    return `Step ${step.stepNumber}: <${toolNames.join(" | ")}>`;
+    return `Step ${step.stepNumber}: ${toolNames.join(" | ")}`;
   }
   if (step.status === "running" && currentTool) {
-    return `Step ${step.stepNumber}: <${currentTool}>`;
+    return `Step ${step.stepNumber}: ${formatToolName(currentTool)}`;
   }
-  return `Step ${step.stepNumber}: <thinking>`;
+  return `Step ${step.stepNumber}: thinking`;
 }
 
 export function StructuredTrace({ events, currentTool }: Props) {
@@ -151,11 +152,7 @@ export function StructuredTrace({ events, currentTool }: Props) {
   const [expandedSteps, setExpandedSteps] = useState<Record<string, boolean>>({});
 
   if (steps.length === 0) {
-    return (
-      <div style={{ color: "#475569", fontFamily: "'JetBrains Mono', monospace", fontSize: 13, padding: "24px 0" }}>
-        Waiting for execution to begin…
-      </div>
-    );
+    return null;
   }
 
   return (

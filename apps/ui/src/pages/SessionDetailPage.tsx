@@ -225,7 +225,7 @@ export function SessionDetailPage() {
               <textarea
                 value={reply}
                 onChange={(e) => setReply(e.target.value)}
-                placeholder="Send another prompt..."
+                placeholder="Enter your coding task here..."
                 rows={4}
                 style={{
                   background: "#0F172A",
@@ -273,7 +273,7 @@ export function SessionDetailPage() {
                     fontSize: 13,
                   }}
                 >
-                  {submittingReply ? "Sending…" : "Send Prompt"}
+                  {submittingReply ? "Sending…" : "Submit"}
                 </button>
               </div>
             </div>

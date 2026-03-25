@@ -21,9 +21,9 @@ function makeEvent(overrides: Partial<SessionEvent>): SessionEvent {
 }
 
 describe("StructuredTrace", () => {
-  it("shows waiting message when no events", () => {
+  it("renders nothing when no events", () => {
     render(<StructuredTrace events={[]} />);
-    expect(screen.getByText(/waiting for execution/i)).toBeTruthy();
+    expect(screen.queryByText(/waiting for execution/i)).toBeNull();
   });
 
   it("renders a running step", () => {
@@ -55,6 +55,6 @@ describe("StructuredTrace", () => {
       makeEvent({ eventType: "tool.started", sequenceNumber: 2, stepId: "s1", actorType: "tool", payload: { toolName: "read_file", toolUseId: "tu-1" } }),
     ];
     render(<StructuredTrace events={events} />);
-    expect(screen.getByText(/<read_file>/)).toBeTruthy();
+    expect(screen.getByText(/Step 1: read file/)).toBeTruthy();
   });
 });
