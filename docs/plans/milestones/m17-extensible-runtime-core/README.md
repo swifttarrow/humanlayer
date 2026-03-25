@@ -15,9 +15,9 @@ Refactor the runtime core around registries so tools, agent implementations, and
 ## Success Criteria
 
 ### Automated Verification
-- [ ] `npm run test --workspace=apps/agent`
-- [ ] `npm run typecheck --workspace=apps/agent`
-- [ ] `npm run test --workspace=apps/server`
+- [x] `npm run test --workspace=apps/agent`
+- [x] `npm run typecheck --workspace=apps/agent`
+- [x] `npm run test --workspace=apps/server`
 
 ### Manual Verification
 - [ ] At least two registered agent implementations dispatch through shared registry APIs.

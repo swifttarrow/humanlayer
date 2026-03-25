@@ -158,3 +158,44 @@ All must-pass scenarios must be green to exit 0. Efficiency failures are warning
 | EF-02 | List sessions latency < 500ms | — | 500ms |
 
 Latency is measured wall-clock from request start to response end. These are advisory — failures produce warnings but do not block CI.
+
+---
+
+## Requirements 4-11 Acceptance Matrix
+
+| Req | Requirement | Eval IDs | Automated | Manual |
+|-----|-------------|----------|-----------|--------|
+| 4 | Runtime Mode / Workdir Parity | R4-01, R4-02 | Session accepts runtimeMode field; denies invalid modes | Dual-mode selection works in UI with correct policy messaging |
+| 5 | In-Session Steering | R5-01, R5-02 | Run-control rejects invalid transitions; steering events are valid types | Pause/resume and approvals work without session forking |
+| 6 | Extensibility (Agent/Tool) | R6-01, R6-02 | Unregistered agent types/providers rejected with reason codes | Two agent types dispatch through registries |
+| 7 | CLI | R7-01, R7-02 | Exit codes are deterministic; JSONL schema versioned | CLI interactive/headless modes work end-to-end |
+| 8 | Workspace UX | R8-01 | Workspace tabs available in session detail | Users can navigate trace/changes/logs in one click |
+| 9 | Provider Extensibility | R9-01 | Provider adapter interface defined | Two providers selectable, OpenAI remains default |
+| 10 | Tool Extensibility | R10-01 | MCP/browser tool providers registered | Tool availability reflects auth/policy state |
+| 11 | Repo Customization | R11-01, R11-02 | Config schema versioned; trust mode defaults to restricted | Repo config and hooks visible with trust/policy reason codes |
+
+### Rollout Controls
+
+| Feature Flag / Config | Default | Purpose |
+|----------------------|---------|---------|
+| `RUNTIME_MODE_POLICY` | `local_only` | Controls which runtime modes are available |
+| `RUNTIME_MODE` | `local` | Default runtime mode |
+| `BROWSER_TOOLS_ENABLED` | `false` | Enables browser tool provider |
+| `REPO_TRUST_MODE` | `restricted` | Controls repo config/hook trust level |
+| `DEFAULT_PROVIDER` | `openai` | Default model provider |
+| `DEFAULT_MODEL` | `gpt-4.1-mini` | Default model |
+
+### Migration Notes
+
+1. **Backward compatibility**: All new features are gated behind config. Default settings preserve existing MVP behavior.
+2. **Enablement order**: Runtime mode policy → Steering → Registries → CLI → Workspace UX → Repo config
+3. **Rollback signals**: If eval must-pass scenarios regress, disable the relevant feature flag and investigate.
+
+### Rollout Playbook
+
+1. Deploy with all defaults (no behavior change from MVP)
+2. Enable `RUNTIME_MODE_POLICY=dual_mode` for environments that support Docker
+3. Enable `BROWSER_TOOLS_ENABLED=true` where browser tools are needed
+4. Enable `REPO_TRUST_MODE=trusted` for repos with verified `.humanlayer.json` configs
+5. Monitor eval results with `npm run eval:mvp -- --baseline` on each deploy
+6. Roll back by reverting config to default values if regressions are detected

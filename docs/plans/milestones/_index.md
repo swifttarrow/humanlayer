@@ -20,12 +20,12 @@
 | 12 | [m12-exploration-state-and-terminal-semantics](./m12-exploration-state-and-terminal-semantics/) | Complete (pending manual verification) |
 | 13 | [m13-runtime-exploration-budget-and-readiness-gate](./m13-runtime-exploration-budget-and-readiness-gate/) | Complete (pending manual verification) |
 | 14 | [m14-tooling-ladder-write-validate-and-observability](./m14-tooling-ladder-write-validate-and-observability/) | Complete (pending manual verification) |
-| 15 | [m15-policy-and-selection-core](./m15-policy-and-selection-core/) | Pending |
-| 16 | [m16-runtime-mode-and-steering](./m16-runtime-mode-and-steering/) | Pending |
-| 17 | [m17-extensible-runtime-core](./m17-extensible-runtime-core/) | Pending |
-| 18 | [m18-cli-and-integrations](./m18-cli-and-integrations/) | Pending |
-| 19 | [m19-workspace-and-repo-customization](./m19-workspace-and-repo-customization/) | Pending |
-| 20 | [m20-validation-and-rollout](./m20-validation-and-rollout/) | Pending |
+| 15 | [m15-policy-and-selection-core](./m15-policy-and-selection-core/) | Complete (pending manual verification) |
+| 16 | [m16-runtime-mode-and-steering](./m16-runtime-mode-and-steering/) | Complete (pending manual verification) |
+| 17 | [m17-extensible-runtime-core](./m17-extensible-runtime-core/) | Complete (pending manual verification) |
+| 18 | [m18-cli-and-integrations](./m18-cli-and-integrations/) | Complete (pending manual verification) |
+| 19 | [m19-workspace-and-repo-customization](./m19-workspace-and-repo-customization/) | Complete (pending manual verification) |
+| 20 | [m20-validation-and-rollout](./m20-validation-and-rollout/) | Complete (pending manual verification) |
 
 ## Quick Links
 - [Plan](../mvp.md)

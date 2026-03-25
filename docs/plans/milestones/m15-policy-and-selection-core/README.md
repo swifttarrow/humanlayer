@@ -15,8 +15,8 @@ Establish shared contracts and precedence resolution primitives used by runtime 
 ## Success Criteria
 
 ### Automated Verification
-- [ ] `npm run typecheck --workspace=packages/shared`
-- [ ] `npm run test --workspace=apps/server`
+- [x] `npm run typecheck --workspace=packages/shared`
+- [x] `npm run test --workspace=apps/server`
 
 ### Manual Verification
 - [ ] Precedence behavior is consistent across runtime mode, provider/model, and agent type.

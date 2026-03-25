@@ -4,9 +4,9 @@
 Normalize model-provider integration behind a provider interface while preserving current OpenAI behavior by default.
 
 ## Deliverables
-- [ ] `apps/agent/src/providers/modelProvider.ts` defines provider capability, invocation, and normalized error interfaces.
-- [ ] `apps/agent/src/providers/openaiProvider.ts` encapsulates existing OpenAI implementation behind the adapter contract.
-- [ ] Provider registration supports selecting at least one non-OpenAI provider path for compatibility checks.
+- [x] `apps/agent/src/providers/modelProvider.ts` defines provider capability, invocation, and normalized error interfaces.
+- [x] `apps/agent/src/providers/openaiProvider.ts` encapsulates existing OpenAI implementation behind the adapter contract.
+- [x] Provider registration supports selecting at least one non-OpenAI provider path for compatibility checks.
 
 ## Notes
 Preserve current environment-based defaults so rollout is non-breaking.

@@ -4,7 +4,7 @@
 Validate full-system stability and backward-compatible defaults before rollout advancement.
 
 ## Deliverables
-- [ ] Execute full test and lint suite with new capabilities disabled by default and capture baseline pass status.
+- [x] Execute full test and lint suite with new capabilities disabled by default and capture baseline pass status.
 - [ ] Execute targeted manual checks for legacy MVP workflows and confirm no required repo config/provider override for baseline usage.
 - [ ] Record go/no-go checklist outcomes and unresolved risk items for release gating.
 

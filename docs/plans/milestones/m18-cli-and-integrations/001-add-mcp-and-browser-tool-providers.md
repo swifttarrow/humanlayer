@@ -4,9 +4,9 @@
 Integrate MCP and browser tool categories into registry-driven runtime discovery and policy filtering.
 
 ## Deliverables
-- [ ] `apps/agent/src/providers/mcpToolProvider.ts` handles discovery, auth state, and health for MCP-backed tools.
-- [ ] `apps/agent/src/providers/browserToolProvider.ts` provides browser capabilities under explicit external-action policy gates.
-- [ ] Tool registry metadata reflects provider availability and policy gating in runtime selection.
+- [x] `apps/agent/src/providers/mcpToolProvider.ts` handles discovery, auth state, and health for MCP-backed tools.
+- [x] `apps/agent/src/providers/browserToolProvider.ts` provides browser capabilities under explicit external-action policy gates.
+- [x] Tool registry metadata reflects provider availability and policy gating in runtime selection.
 
 ## Notes
 Start with minimal capability sets that validate provider lifecycle and policy contracts before scaling breadth.

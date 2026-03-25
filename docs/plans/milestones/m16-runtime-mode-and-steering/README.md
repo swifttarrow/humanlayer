@@ -15,9 +15,9 @@ Deliver requirement 4 and requirement 5 behavior: runtime mode + workdir parity 
 ## Success Criteria
 
 ### Automated Verification
-- [ ] `npm run test --workspace=apps/server`
-- [ ] `npm run test --workspace=apps/agent`
-- [ ] `npm run test --workspace=apps/ui`
+- [x] `npm run test --workspace=apps/server`
+- [x] `npm run test --workspace=apps/agent`
+- [x] `npm run test --workspace=apps/ui`
 
 ### Manual Verification
 - [ ] Dual-mode sessions allow explicit local/docker choice with correct policy messaging.

@@ -4,9 +4,9 @@
 Make runtime logs and trace events directly navigable by introducing a terminal panel and artifact deep-link mapping.
 
 ## Deliverables
-- [ ] `apps/ui/src/components/TerminalPanel.tsx` renders command boundaries, statuses, and searchable output streams.
-- [ ] `apps/ui/src/components/StructuredTrace.tsx` links trace items to stable artifact IDs in changes/log panels.
-- [ ] UI typecheck/tests cover deep-link routing and capability-dependent preview fallback behavior.
+- [x] `apps/ui/src/components/TerminalPanel.tsx` renders command boundaries, statuses, and searchable output streams.
+- [x] `apps/ui/src/components/StructuredTrace.tsx` links trace items to stable artifact IDs in changes/log panels.
+- [x] UI typecheck/tests cover deep-link routing and capability-dependent preview fallback behavior.
 
 ## Notes
 Use stable artifact identifiers so deep links remain valid across reconnects and replayed traces.

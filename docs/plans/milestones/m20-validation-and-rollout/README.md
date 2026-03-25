@@ -16,7 +16,7 @@ Close the stretch-goals program with requirement-mapped evals, rollout controls,
 
 ### Automated Verification
 - [ ] `npm run eval:mvp`
-- [ ] `npm run test`
+- [x] `npm run test`
 - [ ] `npm run lint`
 
 ### Manual Verification

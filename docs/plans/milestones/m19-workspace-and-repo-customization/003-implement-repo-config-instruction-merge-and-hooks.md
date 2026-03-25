@@ -4,9 +4,9 @@
 Introduce deterministic repo-scoped customization with explicit trust modes and auditable hook execution.
 
 ## Deliverables
-- [ ] `packages/shared/src/repoConfig.ts` defines versioned repo config schema and merge metadata.
-- [ ] `apps/agent/src/config/repoConfigLoader.ts` and `apps/agent/src/config/instructionMerger.ts` implement deterministic discovery and instruction merge ordering.
-- [ ] `apps/agent/src/hooks/hookRunner.ts` and `apps/server/src/services/eventIngestService.ts` execute/report setup and validation hooks with trust-policy reason codes.
+- [x] `packages/shared/src/repoConfig.ts` defines versioned repo config schema and merge metadata.
+- [x] `apps/agent/src/config/repoConfigLoader.ts` and `apps/agent/src/config/instructionMerger.ts` implement deterministic discovery and instruction merge ordering.
+- [x] `apps/agent/src/hooks/hookRunner.ts` and `apps/server/src/services/eventIngestService.ts` execute/report setup and validation hooks with trust-policy reason codes.
 
 ## Notes
 Default to restricted behavior unless trust policy explicitly allows broader execution.

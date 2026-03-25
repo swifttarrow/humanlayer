@@ -4,9 +4,9 @@
 Block incompatible agent and provider/model combinations before a run starts.
 
 ## Deliverables
-- [ ] `apps/server/src/services/sessionService.ts` validates selected `agentType` and provider/model compatibility via shared policy selection.
-- [ ] Session creation error responses include typed reason codes for unsupported capability combinations.
-- [ ] Server tests cover compatibility acceptance/denial paths.
+- [x] `apps/server/src/services/sessionService.ts` validates selected `agentType` and provider/model compatibility via shared policy selection.
+- [x] Session creation error responses include typed reason codes for unsupported capability combinations.
+- [x] Server tests cover compatibility acceptance/denial paths.
 
 ## Notes
 Tie compatibility checks to registry metadata rather than hard-coded lists.
