@@ -5,6 +5,8 @@ import { api } from "../api.js";
 import { StatusBadge } from "../components/StatusBadge.js";
 import { StructuredTrace } from "../components/StructuredTrace.js";
 import { RawEventsPanel } from "../components/RawEventsPanel.js";
+import { ChangesPanel } from "../components/ChangesPanel.js";
+import { TerminalPanel } from "../components/TerminalPanel.js";
 import { getIdleStopInfo, getSessionDisplayTitle } from "../sessionIdle.js";
 
 export function SessionDetailPage() {
@@ -19,6 +21,7 @@ export function SessionDetailPage() {
   const [reply, setReply] = useState("");
   const [submittingReply, setSubmittingReply] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const [activeTab, setActiveTab] = useState<"trace" | "changes" | "logs">("trace");
   const lastSeqRef = useRef(-1);
   const esRef = useRef<EventSource | null>(null);
 
@@ -209,17 +212,40 @@ export function SessionDetailPage() {
 
       {/* Main body */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-        {/* Trace panel */}
+        {/* Workspace panel */}
         <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", padding: "24px 32px", gap: 20, overflow: "hidden" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ color: "#64748B", fontSize: 11, fontWeight: 600, letterSpacing: 2, fontFamily: "'JetBrains Mono', monospace" }}>EXECUTION TRACE</span>
-            <div style={{ flex: 1, height: 1 }} />
+          {/* Workspace tabs */}
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            {(["trace", "changes", "logs"] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                style={{
+                  background: activeTab === tab ? "#1E293B" : "transparent",
+                  border: activeTab === tab ? "1px solid #334155" : "1px solid transparent",
+                  borderRadius: 6,
+                  padding: "6px 14px",
+                  color: activeTab === tab ? "#22D3EE" : "#64748B",
+                  cursor: "pointer",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  letterSpacing: 1,
+                  fontFamily: "'JetBrains Mono', monospace",
+                  textTransform: "uppercase",
+                }}
+              >
+                {tab}
+              </button>
+            ))}
+            <div style={{ flex: 1 }} />
             <span style={{ color: "#475569", fontSize: 12, fontFamily: "'JetBrains Mono', monospace" }}>
               {events.length > 0 ? `${events.length} events` : "waiting…"}
             </span>
           </div>
           <div style={{ flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 8, display: "flex", flexDirection: "column", gap: 16 }}>
-            <StructuredTrace events={events} currentTool={state?.currentTool} />
+            {activeTab === "trace" && <StructuredTrace events={events} currentTool={state?.currentTool} />}
+            {activeTab === "changes" && <ChangesPanel events={events} />}
+            {activeTab === "logs" && <TerminalPanel events={events} />}
 
             <div style={{ background: "#1E293B", borderRadius: 8, padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
               <textarea
@@ -292,6 +318,18 @@ export function SessionDetailPage() {
                 ["Agent", session.agentType],
                 ["Created", new Date(session.createdAt).toLocaleTimeString()],
                 ["Updated", new Date(session.updatedAt).toLocaleTimeString()],
+                ...(() => {
+                  const meta = session.metadata as Record<string, unknown> | undefined;
+                  const sel = meta?.selection as Record<string, string> | undefined;
+                  const wd = meta?.workdirDetails as Record<string, string> | undefined;
+                  const rows: string[][] = [];
+                  if (sel?.runtimeMode) rows.push(["Runtime", sel.runtimeMode]);
+                  if (sel?.provider) rows.push(["Provider", sel.provider]);
+                  if (sel?.model) rows.push(["Model", sel.model]);
+                  if (wd?.enteredPath) rows.push(["Workdir", wd.enteredPath]);
+                  if (wd?.canonicalPath && wd.canonicalPath !== wd.enteredPath) rows.push(["Canonical", wd.canonicalPath]);
+                  return rows;
+                })(),
                 ...(idleStopInfo.inCountdown ? [["Auto-stop", `${idleStopInfo.secondsRemaining ?? 0}s`]] : []),
                 ...(state?.lastHeartbeatAt ? [["Heartbeat", new Date(state.lastHeartbeatAt).toLocaleTimeString()]] : []),
               ].map(([k, v]) => (

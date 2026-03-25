@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 import { readFile } from "fs/promises";
 import path from "path";
 import { EventEmitter } from "./eventEmitter.js";
-import { heartbeat, listSessionEvents } from "../api.js";
+import { heartbeat, listSessionEvents, getSessionMetadata } from "../api.js";
 import { runFileSearch, runFileRead, runFileReadRange } from "../tools/fileTools.js";
 import { runPatch } from "../tools/patchTool.js";
 import { runShell } from "../tools/shellTool.js";
@@ -346,6 +346,38 @@ export async function runStepLoop(opts: StepLoopOptions): Promise<StepLoopResult
         }
       } catch (_err) {
         // If heartbeat fails, proceed — sweeper will handle expired leases
+      }
+
+      // Run-control gating: wait while paused or awaiting approval/clarification
+      try {
+        let meta = await getSessionMetadata(opts.sessionId);
+        const RUN_CONTROL_POLL_MS = 2000;
+        const RUN_CONTROL_MAX_WAIT_MS = 30 * 60 * 1000; // 30 min max wait
+        let waited = 0;
+        while (
+          meta.runControlState &&
+          meta.runControlState !== "running" &&
+          waited < RUN_CONTROL_MAX_WAIT_MS
+        ) {
+          emitter.emit("heartbeat", { runControlState: meta.runControlState });
+          await emitter.flush();
+          await new Promise((r) => setTimeout(r, RUN_CONTROL_POLL_MS));
+          waited += RUN_CONTROL_POLL_MS;
+
+          // Check if we got a clarification response to inject
+          meta = await getSessionMetadata(opts.sessionId);
+          if (
+            meta.lastRunControlAction?.action === "clarify" &&
+            meta.lastRunControlAction.clarificationResponse
+          ) {
+            messages.push({
+              role: "user",
+              content: meta.lastRunControlAction.clarificationResponse.answer,
+            });
+          }
+        }
+      } catch (_err) {
+        // Non-fatal: continue if metadata fetch fails
       }
 
       runStepCount++;

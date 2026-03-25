@@ -49,7 +49,17 @@ export type SessionEventType =
   | "phase.transition"
   | "exploration.budget_warning"
   | "exploration.budget_exhausted"
-  | "edit_readiness.hypothesis";
+  | "edit_readiness.hypothesis"
+  | "steering.paused"
+  | "steering.resumed"
+  | "steering.approval_requested"
+  | "steering.approved"
+  | "steering.rejected"
+  | "steering.clarification_requested"
+  | "steering.clarification_responded"
+  | "hook.started"
+  | "hook.completed"
+  | "hook.failed";
 
 // ============================================================
 // Execution Phase
@@ -233,6 +243,291 @@ export interface WorkdirValidationError {
   message: string;
   /** The path that caused the failure */
   path?: string;
+}
+
+// ============================================================
+// Selection Policy — Runtime Mode
+// ============================================================
+
+/**
+ * System-level runtime mode policy. Controls which modes are available
+ * for session creation.
+ */
+export type RuntimeModePolicy = "local_only" | "docker_only" | "dual_mode";
+
+/**
+ * Precedence layer for selection resolution.
+ * System < user < session: later layers override earlier ones.
+ */
+export type SelectionLayer = "system" | "user" | "session";
+
+/**
+ * Outcome of a selection resolution: allowed or denied with a reason.
+ */
+export type SelectionOutcome = "allowed" | "denied";
+
+/**
+ * Typed reason codes for selection denials.
+ */
+export type SelectionDenialReason =
+  | "RUNTIME_MODE_NOT_AVAILABLE"
+  | "RUNTIME_MODE_POLICY_DENIED"
+  | "PROVIDER_NOT_REGISTERED"
+  | "PROVIDER_NOT_AVAILABLE"
+  | "MODEL_NOT_SUPPORTED"
+  | "AGENT_TYPE_NOT_REGISTERED"
+  | "AGENT_TYPE_NOT_AVAILABLE"
+  | "AGENT_PROVIDER_INCOMPATIBLE"
+  | "TOOL_NOT_REGISTERED"
+  | "TOOL_POLICY_DENIED"
+  | "TOOL_AUTH_REQUIRED";
+
+/**
+ * Result of a single selection resolution.
+ */
+export interface SelectionResult<T = string> {
+  outcome: SelectionOutcome;
+  /** The resolved value when outcome is "allowed" */
+  value?: T;
+  /** Which layer determined the final outcome */
+  decidedBy: SelectionLayer;
+  /** Reason code when denied */
+  reason?: SelectionDenialReason;
+  /** Human-readable explanation */
+  message?: string;
+}
+
+/**
+ * Batch result from resolving all session-creation selections.
+ */
+export interface SessionSelectionResult {
+  runtimeMode: SelectionResult<RuntimeMode>;
+  agentType: SelectionResult<string>;
+  provider: SelectionResult<string>;
+  model: SelectionResult<string>;
+  /** Overall: denied if any individual selection is denied */
+  overall: SelectionOutcome;
+  /** All denial reasons collected */
+  denials: Array<{ field: string; reason: SelectionDenialReason; message: string }>;
+}
+
+// ============================================================
+// Selection Policy — Provider / Model
+// ============================================================
+
+/**
+ * Provider selection envelope for session creation.
+ */
+export interface ProviderModelSelection {
+  /** Provider ID (e.g., "openai", "anthropic") */
+  provider?: string;
+  /** Model ID within provider (e.g., "gpt-4.1-mini") */
+  model?: string;
+}
+
+/**
+ * Provider capability metadata for compatibility checks.
+ */
+export interface ProviderCapability {
+  providerId: string;
+  displayName: string;
+  supportedModels: string[];
+  supportedAgentTypes: string[];
+  /** Whether auth/credentials are available */
+  available: boolean;
+}
+
+// ============================================================
+// Selection Policy — Tool / Provider Metadata
+// ============================================================
+
+/**
+ * Tool registration metadata.
+ */
+export interface ToolMetadata {
+  toolId: string;
+  displayName: string;
+  /** Which provider category this tool belongs to */
+  providerCategory: "builtin" | "mcp" | "browser" | "custom";
+  /** Whether the tool requires external auth */
+  requiresAuth: boolean;
+  /** Whether the tool performs external actions (network, browser, etc.) */
+  isExternalAction: boolean;
+  /** Current availability based on auth/policy state */
+  available: boolean;
+  /** Reason if unavailable */
+  unavailableReason?: string;
+}
+
+/**
+ * Agent type registration metadata.
+ */
+export interface AgentTypeMetadata {
+  agentTypeId: string;
+  displayName: string;
+  /** Compatible provider IDs */
+  compatibleProviders: string[];
+  /** Whether this is the default agent type */
+  isDefault: boolean;
+}
+
+// ============================================================
+// Run Control — Pause / Resume / Approval
+// ============================================================
+
+/**
+ * Run control state for same-run steering.
+ */
+export type RunControlState =
+  | "running"
+  | "paused"
+  | "awaiting_approval"
+  | "awaiting_clarification";
+
+/**
+ * Run control action types.
+ */
+export type RunControlAction =
+  | "pause"
+  | "resume"
+  | "approve"
+  | "reject"
+  | "clarify";
+
+/**
+ * Approval decision for gated operations.
+ */
+export interface ApprovalDecision {
+  action: "approve" | "reject";
+  /** Who made the decision */
+  actor: string;
+  /** Timestamp of the decision */
+  decidedAt: string;
+  /** Optional explanation */
+  reason?: string;
+}
+
+/**
+ * Clarification request from agent to user.
+ */
+export interface ClarificationRequest {
+  /** What the agent needs clarified */
+  question: string;
+  /** Optional context for the question */
+  context?: string;
+  /** When the clarification was requested */
+  requestedAt: string;
+}
+
+/**
+ * Clarification response from user to agent.
+ */
+export interface ClarificationResponse {
+  /** The user's response */
+  answer: string;
+  /** When the response was provided */
+  respondedAt: string;
+}
+
+/**
+ * Steering event payload for run control actions.
+ */
+export interface SteeringEventPayload {
+  action: RunControlAction;
+  previousState: RunControlState;
+  newState: RunControlState;
+  actor: string;
+  reason?: string;
+  approval?: ApprovalDecision;
+  clarificationRequest?: ClarificationRequest;
+  clarificationResponse?: ClarificationResponse;
+}
+
+// ============================================================
+// Repo Config Metadata
+// ============================================================
+
+/**
+ * Trust mode for repo-level configuration.
+ */
+export type RepoTrustMode = "trusted" | "restricted" | "disabled";
+
+/**
+ * Repo config metadata envelope.
+ */
+export interface RepoConfigMetadata {
+  /** Schema version for forward compatibility */
+  schemaVersion: string;
+  /** Trust mode for this repo's config */
+  trustMode: RepoTrustMode;
+  /** Repo root path */
+  repoRoot: string;
+  /** Config file path relative to repo root */
+  configPath?: string;
+  /** Whether hooks are enabled under current trust mode */
+  hooksEnabled: boolean;
+}
+
+// ============================================================
+// Extended Event Types
+// ============================================================
+
+/**
+ * Extended event types for steering, approval, and run-control events.
+ */
+export type ExtendedSessionEventType =
+  | SessionEventType
+  | "steering.paused"
+  | "steering.resumed"
+  | "steering.approval_requested"
+  | "steering.approved"
+  | "steering.rejected"
+  | "steering.clarification_requested"
+  | "steering.clarification_responded"
+  | "hook.started"
+  | "hook.completed"
+  | "hook.failed";
+
+// ============================================================
+// Extended API DTOs
+// ============================================================
+
+/**
+ * Request to create a session with extended selection fields.
+ */
+export interface ExtendedCreateSessionRequest extends CreateSessionRequest {
+  /** Requested runtime mode (overrides system default) */
+  runtimeMode?: RuntimeMode;
+  /** Provider/model selection */
+  providerModel?: ProviderModelSelection;
+}
+
+/**
+ * Run control request for same-run steering.
+ */
+export interface RunControlRequest {
+  action: RunControlAction;
+  reason?: string;
+  /** For clarification responses */
+  clarificationResponse?: ClarificationResponse;
+}
+
+/**
+ * Run control response.
+ */
+export interface RunControlResponse {
+  sessionId: string;
+  previousState: RunControlState;
+  newState: RunControlState;
+}
+
+/**
+ * Pre-run selection failure response body.
+ */
+export interface SelectionFailureResponse {
+  error: string;
+  code: "SELECTION_DENIED";
+  denials: Array<{ field: string; reason: SelectionDenialReason; message: string }>;
 }
 
 // ============================================================

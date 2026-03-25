@@ -24,6 +24,17 @@ interface SessionOutcome {
   summary?: string;
 }
 
+interface SteeringEvent {
+  id: string;
+  eventType: string;
+  eventTime: string;
+  action?: string;
+  actor?: string;
+  reason?: string;
+  question?: string;
+  answer?: string;
+}
+
 const PHASE_LABELS: Record<SessionPhase, string> = {
   exploring: "Exploring",
   editing: "Editing",
@@ -36,14 +47,33 @@ const PHASE_COLORS: Record<SessionPhase, string> = {
   validating: "#A78BFA",
 };
 
-function buildSteps(events: SessionEvent[]): { steps: Step[]; outcome?: SessionOutcome; currentPhase?: SessionPhase } {
+function isSteeringEvent(eventType: string): boolean {
+  return eventType.startsWith("steering.");
+}
+
+function buildSteps(events: SessionEvent[]): { steps: Step[]; outcome?: SessionOutcome; currentPhase?: SessionPhase; steeringEvents: SteeringEvent[] } {
   const stepsMap = new Map<string, Step>();
   const stepOrder: string[] = [];
   let currentPhase: SessionPhase | undefined;
   let outcome: SessionOutcome | undefined;
+  const steeringEvents: SteeringEvent[] = [];
 
   for (const ev of events) {
     const stepId = ev.stepId ?? "_root";
+
+    if (isSteeringEvent(ev.eventType)) {
+      steeringEvents.push({
+        id: ev.id,
+        eventType: ev.eventType,
+        eventTime: ev.eventTime,
+        action: ev.payload.action as string | undefined,
+        actor: ev.actorId ?? ev.payload.actor as string | undefined,
+        reason: ev.payload.reason as string | undefined,
+        question: (ev.payload.clarificationRequest as Record<string, unknown> | undefined)?.question as string | undefined,
+        answer: (ev.payload.clarificationResponse as Record<string, unknown> | undefined)?.answer as string | undefined,
+      });
+      continue;
+    }
 
     if (ev.eventType === "step.started") {
       if (!stepsMap.has(stepId)) {
@@ -105,7 +135,7 @@ function buildSteps(events: SessionEvent[]): { steps: Step[]; outcome?: SessionO
   }
 
   const steps = stepOrder.map((sid) => stepsMap.get(sid)!).filter(Boolean);
-  return { steps, outcome, currentPhase };
+  return { steps, outcome, currentPhase, steeringEvents };
 }
 
 interface PromptGroup {
@@ -146,8 +176,28 @@ function buildStepTitle(step: Step, currentTool?: string): string {
   return `Step ${step.stepNumber}: thinking`;
 }
 
+const STEERING_LABELS: Record<string, string> = {
+  "steering.paused": "Paused",
+  "steering.resumed": "Resumed",
+  "steering.approval_requested": "Approval Requested",
+  "steering.approved": "Approved",
+  "steering.rejected": "Rejected",
+  "steering.clarification_requested": "Clarification Requested",
+  "steering.clarification_responded": "Clarification Responded",
+};
+
+const STEERING_COLORS: Record<string, string> = {
+  "steering.paused": "#F59E0B",
+  "steering.resumed": "#4ADE80",
+  "steering.approval_requested": "#A78BFA",
+  "steering.approved": "#4ADE80",
+  "steering.rejected": "#F87171",
+  "steering.clarification_requested": "#60A5FA",
+  "steering.clarification_responded": "#60A5FA",
+};
+
 export function StructuredTrace({ events, currentTool }: Props) {
-  const { steps, outcome, currentPhase } = buildSteps(events);
+  const { steps, outcome, currentPhase, steeringEvents } = buildSteps(events);
   const groupedSteps = groupStepsByPrompt(steps);
   const [expandedSteps, setExpandedSteps] = useState<Record<string, boolean>>({});
 
@@ -265,7 +315,7 @@ export function StructuredTrace({ events, currentTool }: Props) {
                     {step.tools.length > 0 && (
                       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                         {step.tools.map((tool, i) => (
-                          <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                          <div key={i} data-artifact-id={`${step.stepId}-tool-${i}`} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
                             <span style={{ color: tool.status === "completed" ? "#4ADE80" : tool.status === "failed" ? "#F87171" : "#22D3EE", fontSize: 11, fontFamily: "'JetBrains Mono', monospace" }}>
                               {tool.status === "completed" ? "✓" : tool.status === "failed" ? "✗" : "→"}
                             </span>
@@ -300,6 +350,37 @@ export function StructuredTrace({ events, currentTool }: Props) {
               </div>
             );
           })}
+        </div>
+      ))}
+
+      {/* Steering events */}
+      {steeringEvents.length > 0 && steeringEvents.map((se) => (
+        <div
+          key={se.id}
+          style={{
+            background: "#0F172A",
+            borderRadius: 6,
+            padding: "8px 12px",
+            borderLeft: `3px solid ${STEERING_COLORS[se.eventType] ?? "#64748B"}`,
+            display: "flex",
+            flexDirection: "column",
+            gap: 4,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ color: STEERING_COLORS[se.eventType] ?? "#64748B", fontSize: 11, fontWeight: 600, fontFamily: "'JetBrains Mono', monospace" }}>
+              {STEERING_LABELS[se.eventType] ?? se.eventType}
+            </span>
+            {se.actor && (
+              <span style={{ color: "#475569", fontSize: 11 }}>by {se.actor}</span>
+            )}
+            <span style={{ color: "#475569", fontSize: 10, fontFamily: "'JetBrains Mono', monospace", marginLeft: "auto" }}>
+              {new Date(se.eventTime).toLocaleTimeString()}
+            </span>
+          </div>
+          {se.reason && <div style={{ color: "#94A3B8", fontSize: 12 }}>{se.reason}</div>}
+          {se.question && <div style={{ color: "#60A5FA", fontSize: 12 }}>Q: {se.question}</div>}
+          {se.answer && <div style={{ color: "#4ADE80", fontSize: 12 }}>A: {se.answer}</div>}
         </div>
       ))}
 

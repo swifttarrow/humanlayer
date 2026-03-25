@@ -87,6 +87,13 @@ export async function createSession(
       input.exposedSurfaces
     );
     metadata.workdirPolicy = policy;
+    // Persist canonical path details for session metadata
+    metadata.workdirDetails = {
+      enteredPath: input.workingDirectory,
+      canonicalPath: policy.resolvedPath,
+      selectedMode: policy.runtimeMode,
+      effectiveMode: policy.runtimeMode,
+    };
   } else if (!metadata.workdirPolicy && typeof metadata.parentSessionId === "string") {
     // Follow-up sessions inherit workdir policy from their parent when the caller
     // does not provide a new workingDirectory override.
@@ -97,6 +104,20 @@ export async function createSession(
     const parentMetadata = (parent?.metadata ?? null) as Record<string, unknown> | null;
     if (parentMetadata?.workdirPolicy) {
       metadata.workdirPolicy = parentMetadata.workdirPolicy;
+    }
+  }
+
+  // If selection metadata was passed in, persist selected vs effective mode
+  if (metadata.selection && typeof metadata.selection === "object") {
+    const sel = metadata.selection as Record<string, unknown>;
+    if (sel.runtimeMode && !metadata.workdirDetails) {
+      metadata.workdirDetails = {
+        selectedMode: sel.runtimeMode,
+        effectiveMode: sel.runtimeMode,
+      };
+    } else if (sel.runtimeMode && metadata.workdirDetails) {
+      (metadata.workdirDetails as Record<string, unknown>).selectedMode = sel.runtimeMode;
+      (metadata.workdirDetails as Record<string, unknown>).effectiveMode = sel.runtimeMode;
     }
   }
 

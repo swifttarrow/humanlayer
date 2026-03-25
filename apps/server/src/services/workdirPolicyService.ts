@@ -4,6 +4,7 @@ import os from "os";
 import type {
   ExposedSurface,
   RuntimeMode,
+  RuntimeModePolicy,
   WorkingDirectoryPolicy,
   WorkdirErrorCode,
 } from "@humanlayer/shared";
@@ -29,6 +30,8 @@ export interface PolicyServiceConfig {
   allowedRoots: string[];
   /** Runtime mode */
   runtimeMode: RuntimeMode;
+  /** Runtime mode policy — controls which modes are available */
+  runtimeModePolicy?: RuntimeModePolicy;
 }
 
 const DEFAULT_CONFIG: PolicyServiceConfig = {
@@ -36,7 +39,34 @@ const DEFAULT_CONFIG: PolicyServiceConfig = {
     ? process.env.WORKDIR_ALLOWED_ROOTS.split(",").map((r) => r.trim())
     : ["/tmp"],
   runtimeMode: (process.env.RUNTIME_MODE as RuntimeMode) ?? "local",
+  runtimeModePolicy: (process.env.RUNTIME_MODE_POLICY as RuntimeModePolicy) ?? "local_only",
 };
+
+/**
+ * RuntimeModeDenialError — thrown when selected runtime mode violates system policy.
+ */
+export class RuntimeModeDenialError extends Error {
+  code: "RUNTIME_MODE_DENIED";
+  selectedMode: RuntimeMode;
+  effectiveMode: RuntimeMode;
+  policy: RuntimeModePolicy;
+  guidance: string;
+
+  constructor(selectedMode: RuntimeMode, effectiveMode: RuntimeMode, policy: RuntimeModePolicy) {
+    const guidance = policy === "local_only"
+      ? "Only local runtime mode is available. Remove the runtimeMode override or change RUNTIME_MODE_POLICY."
+      : policy === "docker_only"
+        ? "Only docker runtime mode is available. Remove the runtimeMode override or change RUNTIME_MODE_POLICY."
+        : `Mode '${selectedMode}' is not available in the current environment.`;
+    super(`Runtime mode '${selectedMode}' denied under '${policy}' policy. ${guidance}`);
+    this.name = "RuntimeModeDenialError";
+    this.code = "RUNTIME_MODE_DENIED";
+    this.selectedMode = selectedMode;
+    this.effectiveMode = effectiveMode;
+    this.policy = policy;
+    this.guidance = guidance;
+  }
+}
 
 function expandHomeDir(inputPath: string): string {
   if (inputPath === "~") {

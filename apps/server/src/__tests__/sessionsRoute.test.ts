@@ -4,6 +4,7 @@ import type { AddressInfo } from "net";
 import { WorkdirValidationError } from "../services/workdirPolicyService.js";
 
 const mockCreateSession = vi.hoisted(() => vi.fn());
+const mockResolveSessionSelections = vi.hoisted(() => vi.fn());
 
 vi.mock("../services/sessionService.js", () => ({
   createSession: mockCreateSession,
@@ -13,9 +14,24 @@ vi.mock("../services/sessionService.js", () => ({
   retrySession: vi.fn(),
 }));
 
+vi.mock("../services/policySelectionService.js", () => ({
+  resolveSessionSelections: mockResolveSessionSelections,
+}));
+
 import { sessionsRouter } from "../routes/sessions.js";
 
 let activeServer: ReturnType<express.Express["listen"]> | null = null;
+
+function allowedSelectionResult() {
+  return {
+    runtimeMode: { outcome: "allowed", value: "local", decidedBy: "system" },
+    agentType: { outcome: "allowed", value: "default", decidedBy: "system" },
+    provider: { outcome: "allowed", value: "openai", decidedBy: "system" },
+    model: { outcome: "allowed", value: "gpt-4.1-mini", decidedBy: "system" },
+    overall: "allowed",
+    denials: [],
+  };
+}
 
 afterEach(async () => {
   if (activeServer) {
@@ -47,6 +63,7 @@ async function postSession(body: Record<string, unknown>) {
 
 describe("sessionsRouter POST /sessions", () => {
   it("returns 422 with code/path for workdir validation failures", async () => {
+    mockResolveSessionSelections.mockReturnValue(allowedSelectionResult());
     const err = new WorkdirValidationError(
       "WORKDIR_NOT_FOUND",
       "Working directory not found",
@@ -61,10 +78,24 @@ describe("sessionsRouter POST /sessions", () => {
   });
 
   it("returns 500 for non-policy errors even when they include a code property", async () => {
+    mockResolveSessionSelections.mockReturnValue(allowedSelectionResult());
     const dbErr = Object.assign(new Error("Prisma unique violation"), { code: "P2002" });
     mockCreateSession.mockRejectedValueOnce(dbErr);
 
     const result = await postSession({ goal: "test" });
     expect(result.status).toBe(500);
+  });
+
+  it("returns 422 with SELECTION_DENIED for policy denials", async () => {
+    mockResolveSessionSelections.mockReturnValue({
+      ...allowedSelectionResult(),
+      overall: "denied",
+      denials: [{ field: "runtimeMode", reason: "RUNTIME_MODE_POLICY_DENIED", message: "Docker not allowed" }],
+    });
+
+    const result = await postSession({ goal: "test", runtimeMode: "docker" });
+    expect(result.status).toBe(422);
+    expect(result.text).toContain("SELECTION_DENIED");
+    expect(result.text).toContain("RUNTIME_MODE_POLICY_DENIED");
   });
 });

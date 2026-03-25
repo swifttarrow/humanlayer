@@ -83,6 +83,33 @@ describe("NewSessionPage", () => {
     });
   });
 
+  it("renders runtime mode selector", () => {
+    renderPage();
+    expect(screen.getByLabelText("Runtime Mode")).toBeDefined();
+  });
+
+  it("sends runtimeMode when selected", async () => {
+    mockCreate.mockResolvedValue({ session: { id: "sess-1" } });
+    renderPage();
+
+    const goalInput = screen.getByPlaceholderText(/Refactor/);
+    const modeSelect = screen.getByLabelText("Runtime Mode");
+    const createButton = screen.getByText("Create Session");
+
+    fireEvent.change(goalInput, { target: { value: "test goal" } });
+    fireEvent.change(modeSelect, { target: { value: "docker" } });
+    fireEvent.click(createButton);
+
+    await waitFor(() => {
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          goal: "test goal",
+          runtimeMode: "docker",
+        })
+      );
+    });
+  });
+
   it("displays error and preserves form values on failure", async () => {
     mockCreate.mockRejectedValue(new Error('{"error":"Working directory not found","code":"WORKDIR_NOT_FOUND"}'));
     renderPage();

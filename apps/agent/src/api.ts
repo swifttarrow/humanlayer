@@ -91,6 +91,23 @@ export async function listSessionEvents(sessionId: string): Promise<ListEventsRe
   return get<ListEventsResponse>(`/sessions/${sessionId}/events`);
 }
 
+export interface SessionMetadata {
+  runControlState?: string;
+  lastRunControlAction?: {
+    action: string;
+    previousState: string;
+    newState: string;
+    timestamp: string;
+    reason?: string;
+    clarificationResponse?: { answer: string; respondedAt: string };
+  };
+}
+
+export async function getSessionMetadata(sessionId: string): Promise<SessionMetadata> {
+  const res = await get<{ session: { metadata?: SessionMetadata } }>(`/sessions/${sessionId}`);
+  return (res.session.metadata ?? {}) as SessionMetadata;
+}
+
 function isTransientNetworkError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   const cause = (err as Error & { cause?: { code?: string } }).cause;
