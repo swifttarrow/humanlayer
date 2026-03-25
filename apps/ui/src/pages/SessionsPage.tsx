@@ -3,12 +3,14 @@ import { useNavigate } from "react-router-dom";
 import type { Session } from "@humanlayer/shared";
 import { api } from "../api.js";
 import { StatusBadge } from "../components/StatusBadge.js";
+import { getIdleStopInfo, getSessionDisplayTitle } from "../sessionIdle.js";
 
 export function SessionsPage() {
   const navigate = useNavigate();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
     const es = api.sessions.stream(
@@ -28,6 +30,11 @@ export function SessionsPage() {
     );
 
     return () => es.close();
+  }, []);
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
   }, []);
 
   const stats = {
@@ -111,7 +118,7 @@ export function SessionsPage() {
             >
               <div style={{ width: 420 }}>
                 <div style={{ color: "#fff", fontSize: 14, fontWeight: 500, marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {session.goal}
+                  {getSessionDisplayTitle(session)}
                 </div>
                 <div style={{ color: "#64748B", fontSize: 12, fontFamily: "'JetBrains Mono', monospace" }}>
                   {session.id.slice(0, 8)}
@@ -124,7 +131,16 @@ export function SessionsPage() {
                 {new Date(session.updatedAt).toLocaleString()}
               </div>
               <div style={{ flex: 1 }}>
-                <span style={{ color: "#22D3EE", fontSize: 13 }}>View →</span>
+                {(() => {
+                  const idleInfo = getIdleStopInfo(session, now);
+                  if (idleInfo.inCountdown) {
+                    return <span style={{ color: "#FCA5A5", fontSize: 12, fontFamily: "'JetBrains Mono', monospace" }}>Stops in {idleInfo.secondsRemaining ?? 0}s</span>;
+                  }
+                  if (idleInfo.isActive) {
+                    return <span style={{ color: "#94A3B8", fontSize: 12, fontFamily: "'JetBrains Mono', monospace" }}>Idle stop pending</span>;
+                  }
+                  return <span style={{ color: "#22D3EE", fontSize: 13 }}>View →</span>;
+                })()}
               </div>
             </div>
           ))}

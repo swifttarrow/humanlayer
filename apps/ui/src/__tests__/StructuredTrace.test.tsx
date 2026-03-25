@@ -36,7 +36,7 @@ describe("StructuredTrace", () => {
       }),
     ];
     render(<StructuredTrace events={events} />);
-    expect(screen.getByText("Step 1")).toBeTruthy();
+    expect(screen.getByText(/Step 1:/)).toBeTruthy();
     expect(screen.getByText("◐")).toBeTruthy();
   });
 
@@ -55,6 +55,6 @@ describe("StructuredTrace", () => {
       makeEvent({ eventType: "tool.started", sequenceNumber: 2, stepId: "s1", actorType: "tool", payload: { toolName: "read_file", toolUseId: "tu-1" } }),
     ];
     render(<StructuredTrace events={events} />);
-    expect(screen.getByText("read_file")).toBeTruthy();
+    expect(screen.getByText(/<read_file>/)).toBeTruthy();
   });
 });

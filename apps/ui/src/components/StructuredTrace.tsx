@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { SessionEvent, SessionPhase } from "@humanlayer/shared";
 
 interface Props {
@@ -10,6 +11,7 @@ interface Step {
   stepNumber: number;
   status: "completed" | "running" | "failed" | "pending";
   phase?: SessionPhase;
+  prompt?: string;
   tools: { name: string; status: "completed" | "failed" | "running"; result?: string }[];
   message?: string;
   startedAt?: string;
@@ -51,6 +53,7 @@ function buildSteps(events: SessionEvent[]): { steps: Step[]; outcome?: SessionO
           stepNumber: (ev.payload.stepNumber as number) ?? stepOrder.length,
           status: "running",
           phase: currentPhase,
+          prompt: typeof ev.payload.goal === "string" ? ev.payload.goal : undefined,
           tools: [],
           startedAt: ev.eventTime,
         });
@@ -105,8 +108,47 @@ function buildSteps(events: SessionEvent[]): { steps: Step[]; outcome?: SessionO
   return { steps, outcome, currentPhase };
 }
 
+interface PromptGroup {
+  id: string;
+  prompt: string;
+  steps: Step[];
+}
+
+function groupStepsByPrompt(steps: Step[]): PromptGroup[] {
+  const groups: PromptGroup[] = [];
+  let currentGroup: PromptGroup | null = null;
+
+  for (const step of steps) {
+    const prompt = step.prompt?.trim() || "Prompt";
+    if (!currentGroup || currentGroup.prompt !== prompt) {
+      currentGroup = {
+        id: `${prompt}-${groups.length}`,
+        prompt,
+        steps: [],
+      };
+      groups.push(currentGroup);
+    }
+    currentGroup.steps.push(step);
+  }
+
+  return groups;
+}
+
+function buildStepTitle(step: Step, currentTool?: string): string {
+  const toolNames = Array.from(new Set(step.tools.map((tool) => tool.name).filter(Boolean)));
+  if (toolNames.length > 0) {
+    return `Step ${step.stepNumber}: <${toolNames.join(" | ")}>`;
+  }
+  if (step.status === "running" && currentTool) {
+    return `Step ${step.stepNumber}: <${currentTool}>`;
+  }
+  return `Step ${step.stepNumber}: <thinking>`;
+}
+
 export function StructuredTrace({ events, currentTool }: Props) {
   const { steps, outcome, currentPhase } = buildSteps(events);
+  const groupedSteps = groupStepsByPrompt(steps);
+  const [expandedSteps, setExpandedSteps] = useState<Record<string, boolean>>({});
 
   if (steps.length === 0) {
     return (
@@ -135,93 +177,134 @@ export function StructuredTrace({ events, currentTool }: Props) {
         </div>
       )}
 
-      {steps.map((step) => {
-        const isRunning = step.status === "running";
-        return (
-          <div
-            key={step.stepId}
-            style={{
-              background: isRunning ? "#1E293B" : step.status === "failed" ? "#1A0A0A" : "#1E293B",
-              borderRadius: 8,
-              padding: 16,
-              border: isRunning ? "1px solid #22D3EE" : "1px solid transparent",
-              display: "flex",
-              gap: 12,
-            }}
-          >
-            {/* Icon */}
-            <span style={{
-              fontFamily: "'JetBrains Mono', monospace",
-              fontSize: 14,
-              fontWeight: 700,
-              color: step.status === "completed" ? "#4ADE80"
-                : step.status === "running" ? "#22D3EE"
-                : step.status === "failed" ? "#F87171"
-                : "#475569",
-              marginTop: 2,
-            }}>
-              {step.status === "completed" ? "✓"
-                : step.status === "running" ? "◐"
-                : step.status === "failed" ? "✗"
-                : "○"}
-            </span>
-
-            {/* Body */}
-            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ color: "#94A3B8", fontSize: 13, fontWeight: 600 }}>
-                  Step {step.stepNumber}
-                  {step.phase && (
-                    <span style={{ color: PHASE_COLORS[step.phase], fontSize: 10, marginLeft: 8, fontWeight: 400 }}>
-                      [{PHASE_LABELS[step.phase]}]
+      {groupedSteps.map((group, groupIndex) => (
+        <div key={group.id} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ color: "#64748B", fontSize: 11, fontWeight: 600, letterSpacing: 1, fontFamily: "'JetBrains Mono', monospace" }}>
+            Prompt {groupIndex + 1}: {group.prompt}
+          </div>
+          {group.steps.map((step) => {
+            const isRunning = step.status === "running";
+            const isExpanded = expandedSteps[step.stepId] ?? false;
+            const toggleExpanded = () =>
+              setExpandedSteps((prev) => ({ ...prev, [step.stepId]: !isExpanded }));
+            return (
+              <div
+                key={step.stepId}
+                style={{
+                  background: isRunning ? "#1E293B" : step.status === "failed" ? "#1A0A0A" : "#1E293B",
+                  borderRadius: 8,
+                  border: isRunning ? "1px solid #22D3EE" : "1px solid transparent",
+                  overflow: "hidden",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={toggleExpanded}
+                  style={{
+                    width: "100%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    background: "transparent",
+                    border: "none",
+                    padding: 14,
+                    cursor: "pointer",
+                    color: "#94A3B8",
+                    textAlign: "left",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                    <span style={{
+                      fontFamily: "'JetBrains Mono', monospace",
+                      fontSize: 14,
+                      fontWeight: 700,
+                      color: step.status === "completed" ? "#4ADE80"
+                        : step.status === "running" ? "#22D3EE"
+                        : step.status === "failed" ? "#F87171"
+                        : "#475569",
+                    }}>
+                      {step.status === "completed" ? "✓"
+                        : step.status === "running" ? "◐"
+                        : step.status === "failed" ? "✗"
+                        : "○"}
                     </span>
-                  )}
-                </span>
-                {step.startedAt && (
-                  <span style={{ color: "#475569", fontSize: 11, fontFamily: "'JetBrains Mono', monospace" }}>
-                    {new Date(step.startedAt).toLocaleTimeString()}
+                    <span
+                      style={{
+                        color: "#C5D1E2",
+                        fontSize: 13,
+                        fontWeight: 600,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {buildStepTitle(step, currentTool)}
+                    </span>
+                  </div>
+                  <span style={{ color: "#64748B", fontSize: 12, fontFamily: "'JetBrains Mono', monospace" }}>
+                    {isExpanded ? "−" : "+"}
                   </span>
-                )}
-              </div>
+                </button>
 
-              {/* Tools */}
-              {step.tools.length > 0 && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
-                  {step.tools.map((tool, i) => (
-                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ color: tool.status === "completed" ? "#4ADE80" : tool.status === "failed" ? "#F87171" : "#22D3EE", fontSize: 11, fontFamily: "'JetBrains Mono', monospace" }}>
-                        {tool.status === "completed" ? "✓" : tool.status === "failed" ? "✗" : "→"}
+                {isExpanded && (
+                  <div style={{ borderTop: "1px solid #334155", padding: 14, maxHeight: 250, overflowY: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ color: "#94A3B8", fontSize: 12 }}>
+                        {step.phase && (
+                          <span style={{ color: PHASE_COLORS[step.phase], fontSize: 10, marginRight: 8, fontWeight: 400 }}>
+                            [{PHASE_LABELS[step.phase]}]
+                          </span>
+                        )}
+                        {step.status.toUpperCase()}
                       </span>
-                      <span style={{ color: "#64748B", fontSize: 12, fontFamily: "'JetBrains Mono', monospace" }}>
-                        {tool.name}
-                      </span>
-                      {tool.result && (
-                        <span style={{ color: "#475569", fontSize: 11, whiteSpace: "pre-wrap", wordBreak: "break-word", flex: 1 }}>
-                          {tool.result}
+                      {step.startedAt && (
+                        <span style={{ color: "#475569", fontSize: 11, fontFamily: "'JetBrains Mono', monospace" }}>
+                          {new Date(step.startedAt).toLocaleTimeString()}
                         </span>
                       )}
                     </div>
-                  ))}
-                </div>
-              )}
 
-              {/* Message */}
-              {step.message && (
-                <div style={{ color: "#94A3B8", fontSize: 13, marginTop: 4, lineHeight: 1.5 }}>
-                  {step.message}
-                </div>
-              )}
+                    {step.tools.length > 0 && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {step.tools.map((tool, i) => (
+                          <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                            <span style={{ color: tool.status === "completed" ? "#4ADE80" : tool.status === "failed" ? "#F87171" : "#22D3EE", fontSize: 11, fontFamily: "'JetBrains Mono', monospace" }}>
+                              {tool.status === "completed" ? "✓" : tool.status === "failed" ? "✗" : "→"}
+                            </span>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0, flex: 1 }}>
+                              <span style={{ color: "#64748B", fontSize: 12, fontFamily: "'JetBrains Mono', monospace" }}>
+                                {tool.name}
+                              </span>
+                              {tool.result && (
+                                <span style={{ color: "#475569", fontSize: 11, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                                  {tool.result}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
 
-              {/* Current tool indicator */}
-              {isRunning && currentTool && (
-                <div style={{ color: "#22D3EE", fontSize: 12, fontFamily: "'JetBrains Mono', monospace", display: "flex", alignItems: "center", gap: 6 }}>
-                  <span>⟳</span> Running: {currentTool}
-                </div>
-              )}
-            </div>
-          </div>
-        );
-      })}
+                    {step.message && (
+                      <div style={{ color: "#94A3B8", fontSize: 13, lineHeight: 1.5 }}>
+                        {step.message}
+                      </div>
+                    )}
+
+                    {isRunning && currentTool && (
+                      <div style={{ color: "#22D3EE", fontSize: 12, fontFamily: "'JetBrains Mono', monospace", display: "flex", alignItems: "center", gap: 6 }}>
+                        <span>⟳</span> Running: {currentTool}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ))}
 
       {/* Session outcome banner */}
       {outcome && (

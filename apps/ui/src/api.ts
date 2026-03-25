@@ -42,6 +42,7 @@ export const api = {
     stop: (id: string, reason?: string) =>
       post<StopSessionResponse>(`/sessions/${id}/stop`, { reason }),
     retry: (id: string) => post<RetrySessionResponse>(`/sessions/${id}/retry`),
+    dismissIdleStop: (id: string) => post<StopSessionResponse>(`/sessions/${id}/idle-dismiss`),
     stream: (
       onEvent: (event: SessionsStreamEvent) => void,
       onError?: (err: Event) => void

@@ -5,6 +5,7 @@ import { api } from "../api.js";
 import { StatusBadge } from "../components/StatusBadge.js";
 import { StructuredTrace } from "../components/StructuredTrace.js";
 import { RawEventsPanel } from "../components/RawEventsPanel.js";
+import { getIdleStopInfo, getSessionDisplayTitle } from "../sessionIdle.js";
 
 export function SessionDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -17,6 +18,7 @@ export function SessionDetailPage() {
   const [retrying, setRetrying] = useState(false);
   const [reply, setReply] = useState("");
   const [submittingReply, setSubmittingReply] = useState(false);
+  const [now, setNow] = useState(Date.now());
   const lastSeqRef = useRef(-1);
   const esRef = useRef<EventSource | null>(null);
 
@@ -38,6 +40,17 @@ export function SessionDetailPage() {
             lastSeqRef.current = next[next.length - 1]?.sequenceNumber ?? lastSeqRef.current;
             return next;
           });
+          if (
+            ev.eventType === "session.completed" ||
+            ev.eventType === "session.failed" ||
+            ev.eventType === "session.stopped" ||
+            ev.eventType === "session.blocked"
+          ) {
+            void api.sessions.get(id).then((res) => {
+              setSession(res.session);
+              if (res.state) setState(res.state);
+            }).catch(() => undefined);
+          }
         }
         // heartbeat: no-op
       },
@@ -99,14 +112,13 @@ export function SessionDetailPage() {
     setSubmittingReply(true);
     setError(null);
     try {
-      const followupGoal = `Follow-up on session ${id}:\n\n${reply.trim()}`;
       const metadata = session?.metadata as Record<string, unknown> | undefined;
       const workdirPolicy = metadata?.workdirPolicy as { resolvedPath?: unknown } | undefined;
       const inheritedWorkingDirectory = typeof workdirPolicy?.resolvedPath === "string"
         ? workdirPolicy.resolvedPath
         : undefined;
       const res = await api.sessions.create({
-        goal: followupGoal,
+        goal: reply.trim(),
         ...(inheritedWorkingDirectory ? { workingDirectory: inheritedWorkingDirectory } : {}),
         metadata: {
           parentSessionId: id,
@@ -116,12 +128,29 @@ export function SessionDetailPage() {
       navigate(`/sessions/${res.session.id}`);
     } catch (err) {
       setError(String(err));
+    } finally {
       setSubmittingReply(false);
     }
   };
 
+  const handleDismissIdleStop = async () => {
+    if (!id) return;
+    try {
+      const res = await api.sessions.dismissIdleStop(id);
+      setSession(res.session);
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   const isActive = session && ["starting", "running", "stopping"].includes(session.status);
   const canRetry = session && ["stopped", "failed"].includes(session.status);
+  const idleStopInfo = session ? getIdleStopInfo(session, now) : { isActive: false, inCountdown: false };
 
   return (
     <div style={{ background: "#0A0F1C", minHeight: "100vh", color: "#fff", fontFamily: "Inter, sans-serif", display: "flex", flexDirection: "column" }}>
@@ -134,9 +163,26 @@ export function SessionDetailPage() {
           ← Sessions
         </button>
         <span style={{ color: "#fff", fontSize: 16, fontWeight: 600, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {session?.goal ?? "Loading…"}
+          {session ? getSessionDisplayTitle(session) : "Loading…"}
         </span>
         {session && <StatusBadge status={session.status} />}
+        {session && idleStopInfo.isActive && (
+          <span
+            style={{
+              background: idleStopInfo.inCountdown ? "#7F1D1D" : "#1E293B",
+              color: idleStopInfo.inCountdown ? "#FCA5A5" : "#94A3B8",
+              border: `1px solid ${idleStopInfo.inCountdown ? "#DC2626" : "#334155"}`,
+              borderRadius: 6,
+              padding: "6px 10px",
+              fontSize: 11,
+              fontFamily: "'JetBrains Mono', monospace",
+            }}
+          >
+            {idleStopInfo.inCountdown
+              ? `Stops in ${idleStopInfo.secondsRemaining ?? 0}s`
+              : "Idle: stop warning pending"}
+          </span>
+        )}
         {isActive && session?.status !== "stopping" && (
           <button
             onClick={() => void handleStop()}
@@ -164,7 +210,7 @@ export function SessionDetailPage() {
       {/* Main body */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
         {/* Trace panel */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "24px 32px", display: "flex", flexDirection: "column", gap: 20 }}>
+        <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", padding: "24px 32px", gap: 20, overflow: "hidden" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <span style={{ color: "#64748B", fontSize: 11, fontWeight: 600, letterSpacing: 2, fontFamily: "'JetBrains Mono', monospace" }}>EXECUTION TRACE</span>
             <div style={{ flex: 1, height: 1 }} />
@@ -172,55 +218,70 @@ export function SessionDetailPage() {
               {events.length > 0 ? `${events.length} events` : "waiting…"}
             </span>
           </div>
-          <StructuredTrace events={events} currentTool={state?.currentTool} />
+          <div style={{ flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 8, display: "flex", flexDirection: "column", gap: 16 }}>
+            <StructuredTrace events={events} currentTool={state?.currentTool} />
+
+            <div style={{ background: "#1E293B", borderRadius: 8, padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+              <textarea
+                value={reply}
+                onChange={(e) => setReply(e.target.value)}
+                placeholder="Send another prompt..."
+                rows={4}
+                style={{
+                  background: "#0F172A",
+                  border: "1px solid #334155",
+                  borderRadius: 6,
+                  padding: 10,
+                  color: "#fff",
+                  fontSize: 13,
+                  fontFamily: "Inter, sans-serif",
+                  resize: "vertical",
+                  outline: "none",
+                  width: "100%",
+                  boxSizing: "border-box",
+                }}
+              />
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                {idleStopInfo.inCountdown ? (
+                  <button
+                    onClick={() => void handleDismissIdleStop()}
+                    style={{
+                      background: "#334155",
+                      color: "#E2E8F0",
+                      border: "none",
+                      borderRadius: 6,
+                      padding: "10px 12px",
+                      cursor: "pointer",
+                      fontWeight: 600,
+                      fontSize: 12,
+                    }}
+                  >
+                    Keep Session Open
+                  </button>
+                ) : <span />}
+                <button
+                  onClick={() => void handleReply()}
+                  disabled={!reply.trim() || submittingReply}
+                  style={{
+                    background: reply.trim() && !submittingReply ? "#22D3EE" : "#1E4060",
+                    color: "#0A0F1C",
+                    border: "none",
+                    borderRadius: 6,
+                    padding: "10px 12px",
+                    cursor: reply.trim() && !submittingReply ? "pointer" : "not-allowed",
+                    fontWeight: 600,
+                    fontSize: 13,
+                  }}
+                >
+                  {submittingReply ? "Sending…" : "Send Prompt"}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Side panel */}
         <div style={{ width: 340, background: "#0F172A", overflowY: "auto", padding: 24, display: "flex", flexDirection: "column", gap: 20 }}>
-          {/* Reply composer */}
-          <div style={{ color: "#64748B", fontSize: 11, fontWeight: 600, letterSpacing: 2, fontFamily: "'JetBrains Mono', monospace" }}>
-            RESPOND
-          </div>
-          <div style={{ background: "#1E293B", borderRadius: 8, padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
-            <textarea
-              value={reply}
-              onChange={(e) => setReply(e.target.value)}
-              placeholder="Send a follow-up instruction..."
-              rows={4}
-              style={{
-                background: "#0F172A",
-                border: "1px solid #334155",
-                borderRadius: 6,
-                padding: 10,
-                color: "#fff",
-                fontSize: 13,
-                fontFamily: "Inter, sans-serif",
-                resize: "vertical",
-                outline: "none",
-                width: "100%",
-                boxSizing: "border-box",
-              }}
-            />
-            <button
-              onClick={() => void handleReply()}
-              disabled={!reply.trim() || submittingReply}
-              style={{
-                background: reply.trim() && !submittingReply ? "#22D3EE" : "#1E4060",
-                color: "#0A0F1C",
-                border: "none",
-                borderRadius: 6,
-                padding: "10px 12px",
-                cursor: reply.trim() && !submittingReply ? "pointer" : "not-allowed",
-                fontWeight: 600,
-                fontSize: 13,
-              }}
-            >
-              {submittingReply ? "Sending…" : "Send Follow-up"}
-            </button>
-          </div>
-
-          <div style={{ background: "#0F172A", height: 1 }} />
-
           {/* Session info */}
           <div style={{ color: "#64748B", fontSize: 11, fontWeight: 600, letterSpacing: 2, fontFamily: "'JetBrains Mono', monospace" }}>SESSION INFO</div>
           {session && (
@@ -231,6 +292,7 @@ export function SessionDetailPage() {
                 ["Agent", session.agentType],
                 ["Created", new Date(session.createdAt).toLocaleTimeString()],
                 ["Updated", new Date(session.updatedAt).toLocaleTimeString()],
+                ...(idleStopInfo.inCountdown ? [["Auto-stop", `${idleStopInfo.secondsRemaining ?? 0}s`]] : []),
                 ...(state?.lastHeartbeatAt ? [["Heartbeat", new Date(state.lastHeartbeatAt).toLocaleTimeString()]] : []),
               ].map(([k, v]) => (
                 <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
