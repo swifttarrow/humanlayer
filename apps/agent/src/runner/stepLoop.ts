@@ -15,7 +15,7 @@ import type {
 } from "@humanlayer/shared";
 import { assertReadablePath, assertWritablePath, assertExecutableCwd, PolicyDeniedError } from "../tools/workspacePolicy.js";
 
-// Keep step numbers monotonic across follow-up runs in the same session.
+// Track step numbers per session execution.
 const sessionStepCounts = new Map<string, number>();
 
 const MODEL = process.env.AGENT_MODEL ?? "gpt-4.1-mini";
@@ -177,7 +177,7 @@ export interface StepLoopOptions {
   attemptId: string;
   agentId: string;
   goal: string;
-  /** Parent session id for follow-up runs (used for step-number continuity). */
+  /** Parent session id for follow-up runs. */
   parentSessionId?: string;
   /** Server-resolved working directory policy from session metadata */
   workdirPolicy?: WorkingDirectoryPolicy;
@@ -331,7 +331,7 @@ export async function runStepLoop(opts: StepLoopOptions): Promise<StepLoopResult
   await emitter.flush();
 
   let runStepCount = 0;
-  let stepCount = await getStartingStepCount(opts.sessionId, opts.parentSessionId);
+  let stepCount = await getStartingStepCount(opts.sessionId);
   let summary = "";
   const tracker = createExplorationTracker();
 
@@ -660,8 +660,7 @@ function getMaxStartedStep(events: Array<{ eventType: string; payload: Record<st
 }
 
 async function getStartingStepCount(
-  sessionId: string,
-  parentSessionId?: string
+  sessionId: string
 ): Promise<number> {
   const inMemory = sessionStepCounts.get(sessionId);
   if (typeof inMemory === "number") {
@@ -675,20 +674,6 @@ async function getStartingStepCount(
     if (maxPersistedStep > 0) {
       sessionStepCounts.set(sessionId, maxPersistedStep);
       return maxPersistedStep;
-    }
-
-    // For follow-up sessions (new session IDs), continue numbering from parent session.
-    if (parentSessionId) {
-      const parentInMemory = sessionStepCounts.get(parentSessionId);
-      if (typeof parentInMemory === "number") {
-        sessionStepCounts.set(sessionId, parentInMemory);
-        return parentInMemory;
-      }
-
-      const { events: parentEvents } = await listSessionEvents(parentSessionId);
-      const parentMaxStep = getMaxStartedStep(parentEvents);
-      sessionStepCounts.set(sessionId, parentMaxStep);
-      return parentMaxStep;
     }
 
     sessionStepCounts.set(sessionId, 0);

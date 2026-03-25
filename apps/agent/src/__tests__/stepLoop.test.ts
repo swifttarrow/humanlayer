@@ -175,30 +175,7 @@ describe("runStepLoop", () => {
     expect(mockListSessionEvents).toHaveBeenCalledWith("sess-restart");
   });
 
-  it("continues step numbers from parent session for follow-up sessions", async () => {
-    mockListSessionEvents.mockImplementation(async (sessionId: string) => {
-      if (sessionId === "sess-parent") {
-        return {
-          events: [
-            {
-              id: "evt-parent",
-              sessionId: "sess-parent",
-              attemptId: "att-parent",
-              sequenceNumber: 1,
-              eventType: "step.started",
-              eventTime: new Date().toISOString(),
-              actorType: "agent",
-              payload: { stepNumber: 10 },
-              isTerminal: false,
-              visibility: "user_visible",
-              schemaVersion: "1.0",
-            },
-          ],
-        };
-      }
-      return { events: [] };
-    });
-
+  it("starts follow-up sessions from step 1", async () => {
     const result = await runStepLoop({
       ...baseOpts,
       sessionId: "sess-followup-child",
@@ -212,9 +189,9 @@ describe("runStepLoop", () => {
       .filter((event) => event.eventType === "step.started")
       .map((event) => event.payload.stepNumber);
 
-    expect(stepStartedEvents).toContain(11);
+    expect(stepStartedEvents).toContain(1);
     expect(mockListSessionEvents).toHaveBeenCalledWith("sess-followup-child");
-    expect(mockListSessionEvents).toHaveBeenCalledWith("sess-parent");
+    expect(mockListSessionEvents).not.toHaveBeenCalledWith("sess-parent");
   });
 
   it("emits session.stopped when stop is requested on first heartbeat", async () => {
