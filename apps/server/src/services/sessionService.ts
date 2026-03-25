@@ -13,12 +13,73 @@ import type {
 } from "@humanlayer/shared";
 import { validateWorkingDirectory } from "./workdirPolicyService.js";
 
+const IDLE_WARNING_DELAY_MS = 5 * 60 * 1000;
+const IDLE_STOP_DELAY_MS = 30 * 1000;
+
+function withIdleSchedule(now = Date.now()): Record<string, unknown> {
+  const warningAt = new Date(now + IDLE_WARNING_DELAY_MS).toISOString();
+  const stopAt = new Date(now + IDLE_WARNING_DELAY_MS + IDLE_STOP_DELAY_MS).toISOString();
+  return {
+    idleWarningAt: warningAt,
+    idleStopAt: stopAt,
+  };
+}
+
+async function summarizeGoalTitle(goal: string): Promise<string | undefined> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return undefined;
+
+  const controller = new AbortController();
+  const timeoutHandle = setTimeout(() => controller.abort(), 4000);
+  try {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: process.env.SESSION_TITLE_MODEL ?? "gpt-4.1-mini",
+        temperature: 0,
+        messages: [
+          {
+            role: "system",
+            content:
+              "Summarize the coding request in 3 to 7 words. Return plain text only.",
+          },
+          {
+            role: "user",
+            content: goal.slice(0, 3000),
+          },
+        ],
+      }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) return undefined;
+    const payload = (await res.json()) as {
+      choices?: Array<{ message?: { content?: string | null } }>;
+    };
+    const content = payload.choices?.[0]?.message?.content?.trim();
+    if (!content) return undefined;
+    return content.replace(/\s+/g, " ").slice(0, 80);
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
+}
+
 export async function createSession(
   input: CreateSessionRequest,
   db: PrismaClient = defaultPrisma
 ) {
   // Validate and canonicalize working directory if provided
   let metadata: Record<string, unknown> = input.metadata ? { ...input.metadata } : {};
+  const title = await summarizeGoalTitle(input.goal);
+  if (title) {
+    metadata.title = title;
+  }
 
   if (input.workingDirectory) {
     const policy = await validateWorkingDirectory(
@@ -110,6 +171,10 @@ export async function stopSession(
     const session = await tx.session.findUnique({ where: { id } });
     if (!session) return null;
 
+    const activeAttemptCount = await tx.sessionAttempt.count({
+      where: { sessionId: id, status: { in: ["claimed", "running"] } },
+    });
+
     if (["completed", "stopped", "failed", "blocked"].includes(session.status)) {
       return toSessionDto(session);
     }
@@ -122,6 +187,19 @@ export async function stopSession(
         });
       }
       return toSessionDto(session);
+    }
+
+    if (activeAttemptCount === 0) {
+      const stopped = await tx.session.update({
+        where: { id },
+        data: { status: "stopped", endedAt: new Date() },
+      });
+      await tx.sessionState.upsert({
+        where: { sessionId: id },
+        create: { sessionId: id, status: "stopped" },
+        update: { status: "stopped", currentStep: null, currentTool: null },
+      });
+      return toSessionDto(stopped);
     }
 
     const updated = await tx.session.update({
@@ -142,6 +220,29 @@ export async function stopSession(
 
     return toSessionDto(updated);
   }) as Promise<Session | null>;
+}
+
+export async function dismissIdleStop(
+  id: string,
+  db: PrismaClient = defaultPrisma
+): Promise<Session | null> {
+  const session = await db.session.findUnique({ where: { id } });
+  if (!session) return null;
+
+  const metadata = (session.metadata as Record<string, unknown> | null) ?? {};
+  const nextMetadata = {
+    ...metadata,
+    idle: withIdleSchedule(),
+  };
+
+  const updated = await db.session.update({
+    where: { id },
+    data: {
+      metadata: nextMetadata as Prisma.InputJsonValue,
+    },
+  });
+
+  return toSessionDto(updated);
 }
 
 /**

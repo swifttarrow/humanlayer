@@ -13,6 +13,7 @@ const SWEEP_INTERVAL_MS = parseInt(
 export async function sweepExpiredLeases(): Promise<{
   stallCount: number;
   sessionIds: string[];
+  idleStoppedCount?: number;
 }> {
   const now = new Date();
 
@@ -24,10 +25,6 @@ export async function sweepExpiredLeases(): Promise<{
     },
     include: { session: true },
   });
-
-  if (expired.length === 0) {
-    return { stallCount: 0, sessionIds: [] };
-  }
 
   const affectedSessionIds: string[] = [];
 
@@ -61,7 +58,39 @@ export async function sweepExpiredLeases(): Promise<{
     });
   }
 
-  return { stallCount: expired.length, sessionIds: affectedSessionIds };
+  const idleSessions = await prisma.session.findMany({
+    where: { status: { in: ["running", "starting", "stopping"] } },
+    select: { id: true, metadata: true },
+  });
+
+  let idleStoppedCount = 0;
+  for (const session of idleSessions) {
+    const metadata = (session.metadata as Record<string, unknown> | null) ?? {};
+    const idle = metadata.idle as Record<string, unknown> | undefined;
+    const stopAtRaw = typeof idle?.idleStopAt === "string" ? idle.idleStopAt : undefined;
+    if (!stopAtRaw) continue;
+    const stopAt = Date.parse(stopAtRaw);
+    if (Number.isNaN(stopAt) || stopAt > Date.now()) continue;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.session.update({
+        where: { id: session.id },
+        data: { status: "stopped", endedAt: new Date() },
+      });
+      await tx.sessionState.upsert({
+        where: { sessionId: session.id },
+        create: { sessionId: session.id, status: "stopped" },
+        update: { status: "stopped", currentStep: null, currentTool: null },
+      });
+      await tx.sessionAttempt.updateMany({
+        where: { sessionId: session.id, status: { in: ["claimed", "running"] } },
+        data: { status: "superseded", endedAt: new Date(), stopReason: "idle_timeout" },
+      });
+    });
+    idleStoppedCount++;
+  }
+
+  return { stallCount: expired.length, sessionIds: affectedSessionIds, idleStoppedCount };
 }
 
 let _sweepTimer: ReturnType<typeof setInterval> | null = null;
@@ -71,9 +100,9 @@ export function startLeaseSweeper(): void {
   _sweepTimer = setInterval(async () => {
     try {
       const result = await sweepExpiredLeases();
-      if (result.stallCount > 0) {
+      if (result.stallCount > 0 || (result.idleStoppedCount ?? 0) > 0) {
         console.log(
-          `[sweeper] Stalled ${result.stallCount} attempt(s), affected sessions: ${result.sessionIds.join(", ")}`
+          `[sweeper] Stalled ${result.stallCount} attempt(s), affected sessions: ${result.sessionIds.join(", ")}. Idle-stopped: ${result.idleStoppedCount ?? 0}`
         );
       }
     } catch (err) {

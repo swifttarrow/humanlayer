@@ -3,6 +3,16 @@ import { prisma as defaultPrisma } from "../db.js";
 import type { SessionEvent, SessionEventType, SessionStatus } from "@humanlayer/shared";
 import { publishToSession } from "../routes/stream.js";
 
+const IDLE_WARNING_DELAY_MS = 5 * 60 * 1000;
+const IDLE_STOP_DELAY_MS = 30 * 1000;
+
+function scheduleIdleStop(now = Date.now()): { idleWarningAt: string; idleStopAt: string } {
+  return {
+    idleWarningAt: new Date(now + IDLE_WARNING_DELAY_MS).toISOString(),
+    idleStopAt: new Date(now + IDLE_WARNING_DELAY_MS + IDLE_STOP_DELAY_MS).toISOString(),
+  };
+}
+
 export interface IngestResult {
   accepted: number;
   duplicates: number;
@@ -130,17 +140,30 @@ async function updateDerivedState(
       stateUpdate.lastHeartbeatAt = new Date();
       break;
     case "session.completed": {
-      stateUpdate.status = "completed";
+      stateUpdate.status = "running";
       stateUpdate.currentStep = null;
       stateUpdate.currentTool = null;
-      // Also update attempt and session
+      // Keep sessions open after completion and schedule idle auto-stop.
       await tx.sessionAttempt.update({
         where: { id: attemptId },
         data: { status: "completed", endedAt: new Date() },
       });
+      const sessionRecord = await tx.session.findUnique({
+        where: { id: sessionId },
+        select: { metadata: true },
+      });
+      const sessionMetadata =
+        (sessionRecord?.metadata as Record<string, unknown> | null) ?? {};
       await tx.session.update({
         where: { id: sessionId },
-        data: { status: "completed" as SessionStatus, endedAt: new Date() },
+        data: {
+          status: "running" as SessionStatus,
+          endedAt: null,
+          metadata: {
+            ...sessionMetadata,
+            idle: scheduleIdleStop(),
+          } as Prisma.InputJsonValue,
+        },
       });
       break;
     }

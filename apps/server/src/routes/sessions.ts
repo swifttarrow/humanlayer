@@ -7,6 +7,7 @@ import {
   getSession,
   stopSession,
   retrySession,
+  dismissIdleStop,
 } from "../services/sessionService.js";
 
 export const sessionsRouter = Router();
@@ -176,6 +177,20 @@ sessionsRouter.post("/:id/retry", async (req, res) => {
       res.status(409).json({ error: err.message });
       return;
     }
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// POST /sessions/:id/idle-dismiss
+sessionsRouter.post("/:id/idle-dismiss", async (req, res) => {
+  try {
+    const session = await dismissIdleStop(req.params.id);
+    if (!session) {
+      res.status(404).json({ error: "Session not found" });
+      return;
+    }
+    res.json({ session });
+  } catch (err) {
     res.status(500).json({ error: String(err) });
   }
 });

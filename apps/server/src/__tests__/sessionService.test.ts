@@ -38,6 +38,7 @@ function makeTx(overrides: Record<string, unknown> = {}) {
     },
     sessionAttempt: {
       updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+      count: vi.fn().mockResolvedValue(1),
     },
     ...overrides,
   };
@@ -170,6 +171,23 @@ describe("stopSession", () => {
 
     const result = await stopSession("missing", undefined, db);
     expect(result).toBeNull();
+  });
+
+  it("stops immediately when there is no active attempt", async () => {
+    const tx = makeTx({
+      session: {
+        findUnique: vi.fn().mockResolvedValue(makeSession({ status: "running" })),
+        update: vi.fn().mockResolvedValue(makeSession({ status: "stopped", endedAt: new Date() })),
+      },
+      sessionAttempt: {
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+        count: vi.fn().mockResolvedValue(0),
+      },
+    });
+    const db = makeDb(tx);
+
+    const result = await stopSession("sess-1", undefined, db);
+    expect(result?.status).toBe("stopped");
   });
 });
 

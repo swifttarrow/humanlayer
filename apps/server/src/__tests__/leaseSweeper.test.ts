@@ -9,6 +9,7 @@ vi.mock("../db.js", () => ({
       update: vi.fn().mockResolvedValue({}),
     },
     session: {
+      findMany: vi.fn().mockResolvedValue([]),
       update: vi.fn().mockResolvedValue({}),
     },
     sessionState: {
@@ -48,6 +49,7 @@ describe("sweepExpiredLeases", () => {
 
   it("returns zero count when no expired attempts", async () => {
     vi.mocked(prisma.sessionAttempt.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.session.findMany).mockResolvedValue([]);
     const result = await sweepExpiredLeases();
     expect(result.stallCount).toBe(0);
     expect(result.sessionIds).toHaveLength(0);
@@ -55,12 +57,14 @@ describe("sweepExpiredLeases", () => {
 
   it("marks expired attempt as stalled", async () => {
     vi.mocked(prisma.sessionAttempt.findMany).mockResolvedValue([makeExpiredAttempt() as never]);
+    vi.mocked(prisma.session.findMany).mockResolvedValue([]);
     const result = await sweepExpiredLeases();
     expect(result.stallCount).toBe(1);
   });
 
   it("transitions active session to failed", async () => {
     vi.mocked(prisma.sessionAttempt.findMany).mockResolvedValue([makeExpiredAttempt() as never]);
+    vi.mocked(prisma.session.findMany).mockResolvedValue([]);
     const result = await sweepExpiredLeases();
     expect(result.sessionIds).toContain("sess-1");
   });
@@ -69,6 +73,7 @@ describe("sweepExpiredLeases", () => {
     vi.mocked(prisma.sessionAttempt.findMany).mockResolvedValue([
       makeExpiredAttempt({ session: { id: "sess-1", status: "completed" } }) as never,
     ]);
+    vi.mocked(prisma.session.findMany).mockResolvedValue([]);
     const result = await sweepExpiredLeases();
     // stallCount is still 1 (attempt is stalled), but no session transition
     expect(result.stallCount).toBe(1);

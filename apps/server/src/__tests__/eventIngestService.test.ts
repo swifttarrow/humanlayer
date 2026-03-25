@@ -42,6 +42,7 @@ function makeDb(attempt: ReturnType<typeof makeAttempt>, existingEvents: { seque
       update: vi.fn().mockResolvedValue({}),
     },
     session: {
+      findUnique: vi.fn().mockResolvedValue({ metadata: {} }),
       update: vi.fn().mockResolvedValue({}),
     },
     sessionEvent: {
@@ -121,7 +122,7 @@ describe("ingestEvents", () => {
     await expect(ingestEvents("sess-1", "att-1", [makeEvent()], db)).rejects.toThrow("not found");
   });
 
-  it("updates derived state for session.completed event", async () => {
+  it("keeps session open and schedules idle stop for session.completed event", async () => {
     const db = makeDb(makeAttempt());
     const tx = (db as unknown as { _tx: ReturnType<typeof makeDb>["_tx"] })._tx;
     await ingestEvents(
@@ -131,7 +132,18 @@ describe("ingestEvents", () => {
       db
     );
     expect(tx.session.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ status: "completed" }) })
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "running",
+          endedAt: null,
+          metadata: expect.objectContaining({
+            idle: expect.objectContaining({
+              idleWarningAt: expect.any(String),
+              idleStopAt: expect.any(String),
+            }),
+          }),
+        }),
+      })
     );
   });
 
