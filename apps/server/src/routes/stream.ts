@@ -56,15 +56,16 @@ streamRouter.get(
     // 1. Send initial snapshot
     write({ type: "snapshot", data: toSessionDto(session) as import("@humanlayer/shared").Session });
 
-    // 2. Replay missed events
-    if (since >= 0) {
-      const missed = await prisma.sessionEvent.findMany({
-        where: { sessionId, sequenceNumber: { gt: since } },
-        orderBy: { sequenceNumber: "asc" },
-      });
-      for (const ev of missed) {
-        write({ type: "event", data: toEventDto(ev) as import("@humanlayer/shared").SessionEvent });
-      }
+    // 2. Replay events. Fresh clients pass since=-1 and should receive full history.
+    const missed = await prisma.sessionEvent.findMany({
+      where: {
+        sessionId,
+        ...(since >= 0 ? { sequenceNumber: { gt: since } } : {}),
+      },
+      orderBy: { sequenceNumber: "asc" },
+    });
+    for (const ev of missed) {
+      write({ type: "event", data: toEventDto(ev) as import("@humanlayer/shared").SessionEvent });
     }
 
     // 3. Subscribe to live events
