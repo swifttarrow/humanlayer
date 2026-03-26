@@ -50,15 +50,12 @@ describe("NewSessionPage", () => {
     expect(body.workingDirectory).toBeUndefined();
   });
 
-  it("sends optional workingDirectory and githubRepoUrl when set", async () => {
+  it("sends optional workingDirectory when set", async () => {
     mockCreate.mockResolvedValue({ session: { id: "sess-1" } });
     renderPage();
 
     fireEvent.change(screen.getByPlaceholderText(/README/), { target: { value: "goal" } });
     fireEvent.change(screen.getByPlaceholderText(/Leave empty/), { target: { value: "/tmp/proj" } });
-    fireEvent.change(screen.getByPlaceholderText(/github.com\/owner/), {
-      target: { value: "https://github.com/foo/bar" },
-    });
     fireEvent.click(screen.getByText("Create Session"));
 
     await waitFor(() => {
@@ -66,10 +63,10 @@ describe("NewSessionPage", () => {
         expect.objectContaining({
           goal: "goal",
           workingDirectory: "/tmp/proj",
-          githubRepoUrl: "https://github.com/foo/bar",
         })
       );
     });
+    expect((mockCreate.mock.calls[0][0] as Record<string, unknown>).githubRepoUrl).toBeUndefined();
   });
 
   it("disables create until goal is non-empty", () => {

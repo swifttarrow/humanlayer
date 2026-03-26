@@ -7,7 +7,6 @@ export function NewSessionPage() {
   const [goal, setGoal] = useState("");
   const [context, setContext] = useState("");
   const [workingDirectory, setWorkingDirectory] = useState("");
-  const [githubRepoUrl, setGithubRepoUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -20,7 +19,6 @@ export function NewSessionPage() {
         goal: goal.trim(),
         metadata: context ? { context } : undefined,
         ...(workingDirectory.trim() ? { workingDirectory: workingDirectory.trim() } : {}),
-        ...(githubRepoUrl.trim() ? { githubRepoUrl: githubRepoUrl.trim() } : {}),
       });
       navigate(`/sessions/${res.session.id}`);
     } catch (err) {
@@ -47,7 +45,7 @@ export function NewSessionPage() {
             <div style={{ fontSize: 24, fontWeight: 600 }}>Create Coding Session</div>
             <div style={{ color: "#94A3B8", fontSize: 14, lineHeight: 1.5 }}>
               By default the agent uses the bind-mounted workspace from Docker Compose (typically <code style={{ color: "#94A3B8" }}>/workspace</code> on the
-              host as <code style={{ color: "#94A3B8" }}>./_workspace</code>). Edits are written to files on your machine—no GitHub required.
+              host as <code style={{ color: "#94A3B8" }}>./_workspace</code>). Edits are written to files in that workspace.
             </div>
           </div>
 
@@ -94,31 +92,6 @@ export function NewSessionPage() {
                 boxSizing: "border-box",
               }}
             />
-          </div>
-
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <label style={{ color: "#64748B", fontSize: 11, fontWeight: 600, letterSpacing: 2 }}>PUBLIC GITHUB REPO (OPTIONAL)</label>
-            <input
-              type="url"
-              value={githubRepoUrl}
-              onChange={(e) => setGithubRepoUrl(e.target.value)}
-              placeholder="https://github.com/owner/repo — requires GITHUB_TOKEN on server"
-              style={{
-                background: "#0F172A",
-                border: "1px solid #1E293B",
-                borderRadius: 8,
-                padding: "12px 16px",
-                color: "#fff",
-                fontSize: 14,
-                fontFamily: "'JetBrains Mono', monospace",
-                outline: "none",
-                width: "100%",
-                boxSizing: "border-box",
-              }}
-            />
-            <div style={{ color: "#64748B", fontSize: 12, lineHeight: 1.5 }}>
-              If set, the server clones this public repository into a session folder and can push a branch after edits. Omit for local-file-only mode.
-            </div>
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
