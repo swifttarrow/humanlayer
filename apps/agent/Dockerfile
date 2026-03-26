@@ -36,8 +36,12 @@ RUN mkdir -p /workspace && chown agent:agent /workspace
 WORKDIR /app/apps/agent
 
 ENV NODE_ENV=production
+# Compose overrides HOME to /workspace/.humanlayer-agent so npx CLIs run from an exec-capable bind mount (tmpfs /tmp is often noexec).
+ENV HOME=/workspace/.humanlayer-agent
+ENV NPM_CONFIG_CACHE=/workspace/.humanlayer-agent/npm-cache
 # No EXPOSE — agent is outbound-only, no inbound ports
 
 USER agent
 
-CMD ["node", "/app/apps/agent/dist/apps/agent/src/main.js"]
+# Ensure npm home/cache dirs exist on the bind-mounted workspace (path is empty until first run).
+CMD ["sh", "-c", "mkdir -p /workspace/.humanlayer-agent/npm-cache && exec node /app/apps/agent/dist/apps/agent/src/main.js"]

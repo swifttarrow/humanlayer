@@ -56,13 +56,19 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       NODE_ENV: production
       RUNTIME_MODE: docker
+      # npm install / create-react-app exceed the agent default 30s shell timeout
+      SHELL_TIMEOUT_MS: "600000"
+      # npm/npx on bind-mounted /workspace: tmpfs /tmp is often noexec → "Permission denied" on npx CLIs (exit 126)
+      HOME: /workspace/.humanlayer-agent
+      NPM_CONFIG_CACHE: /workspace/.humanlayer-agent/npm-cache
     volumes:
       - ${WORKSPACE_PATH:-./_workspace}:/workspace
     # Keep image WORKDIR (/app/apps/agent); do not set working_dir to /workspace or `node dist/...` resolves there.
     # No ports — outbound-only
     read_only: true
+    # Large tmp for non-exec temp files; npx executables use HOME on /workspace (exec-capable)
     tmpfs:
-      - /tmp:size=100M
+      - /tmp:size=1g
     restart: unless-stopped
 
   ui:
