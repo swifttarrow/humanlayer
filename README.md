@@ -112,10 +112,11 @@ See [docs/evals/mvp-eval-spec.md](docs/evals/mvp-eval-spec.md) for full scenario
 | `PORT` | `3000` | HTTP server port |
 | `LEASE_DURATION_SECONDS` | `60` | How long an agent lease is valid |
 | `LEASE_SWEEP_INTERVAL_MS` | `30000` | Expired lease sweep interval |
-| `WORKDIR_ALLOWED_ROOTS` | `/tmp` | Comma-separated allowed root directories for working directory policy |
 | `RUNTIME_MODE` | `local` | Runtime mode: `local` or `docker` |
 
 ### Agent
+
+Environment variables can be set in your shell or in `.env` files the agent loads in order: `apps/agent/.env`, then `apps/server/.env`, then the repo-root `.env` (only keys not already set). Paths are absolute relative to the package, so this works even when `npm run dev` is started from the monorepo root.
 
 | Variable | Default | Description |
 |---|---|---|
@@ -134,16 +135,7 @@ See [docs/evals/mvp-eval-spec.md](docs/evals/mvp-eval-spec.md) for full scenario
 
 ## Working Directory Policy
 
-Sessions can include a `working_directory` that constrains where the agent can read and write files.
-
-### Local Mode
-
-Set `WORKDIR_ALLOWED_ROOTS` to control which host directories are available for working directory selection. The server validates and canonicalizes paths at session creation; the agent enforces boundaries at tool execution time.
-
-```bash
-# Allow projects under ~/code and /tmp
-export WORKDIR_ALLOWED_ROOTS="$HOME/code,/tmp"
-```
+Sessions can include a `working_directory` that sets where the agent operates. The server resolves the path with `realpath`, requires that it exists and is a directory, and persists the canonical path in session metadata; the agent enforces that boundary at tool execution time. There is no server-side allowlist—users may choose any host path that exists (run the server only in environments where that matches your security model).
 
 **Example — valid request:**
 ```bash
@@ -152,12 +144,12 @@ curl -X POST http://localhost:3000/sessions \
   -d '{"goal":"fix the bug","workingDirectory":"/tmp/my-project"}'
 ```
 
-**Example — rejected request (outside allowed roots):**
+**Example — rejected request (path missing or not a directory):**
 ```bash
 curl -X POST http://localhost:3000/sessions \
   -H 'Content-Type: application/json' \
-  -d '{"goal":"fix the bug","workingDirectory":"/etc/secrets"}'
-# → 422: {"error":"Working directory is outside allowed roots","code":"WORKDIR_NOT_ALLOWED"}
+  -d '{"goal":"fix the bug","workingDirectory":"/path/that/does/not/exist"}'
+# → 422 with code WORKDIR_NOT_FOUND or WORKDIR_NOT_DIRECTORY
 ```
 
 ### Docker Mode

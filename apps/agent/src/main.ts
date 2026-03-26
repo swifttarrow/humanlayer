@@ -1,4 +1,7 @@
+import { loadEnv, envLoadPathsForLog } from "./loadEnv.js";
 import { randomUUID } from "crypto";
+
+loadEnv();
 import { pullSession } from "./api.js";
 import { runStepLoop } from "./runner/stepLoop.js";
 import type { WorkingDirectoryPolicy } from "@humanlayer/shared";
@@ -57,6 +60,12 @@ async function pollAndRun() {
 
 async function main() {
   console.log(`[agent] Starting agent ${AGENT_ID}`);
+  if (!process.env.OPENAI_API_KEY?.trim()) {
+    console.error(
+      "[agent] OPENAI_API_KEY is not set after loading .env from:\n  " +
+        envLoadPathsForLog().join("\n  ")
+    );
+  }
   console.log(`[agent] Polling every ${POLL_INTERVAL_MS}ms`);
 
   // Poll loop

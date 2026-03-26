@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@humanlayer/shared": "*",
+    "dotenv": "^17.3.1",
     "glob": "^11.0.0"
   },
   "devDependencies": {

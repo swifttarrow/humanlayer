@@ -320,11 +320,6 @@ export async function runStepLoop(opts: StepLoopOptions): Promise<StepLoopResult
     emitter.emit("policy.validated", {
       resolvedPath: opts.workdirPolicy.resolvedPath,
       runtimeMode: opts.workdirPolicy.runtimeMode,
-      exposedSurfaces: opts.workdirPolicy.exposedSurfaces.map((s) => ({
-        hostPath: s.hostPath,
-        mode: s.mode,
-        label: s.label,
-      })),
     });
   }
 
@@ -723,7 +718,7 @@ async function callOpenAI(
   content?: string | null;
   tool_calls?: OpenAIToolCall[];
 }> {
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) {
     throw new Error("OPENAI_API_KEY is required for agent step loop");
   }

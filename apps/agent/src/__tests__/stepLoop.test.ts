@@ -77,7 +77,6 @@ const testPolicy: WorkingDirectoryPolicy = {
   inputPath: "/tmp/project",
   resolvedPath: "/tmp/project",
   runtimeMode: "local",
-  exposedSurfaces: [],
 };
 
 describe("runStepLoop", () => {
@@ -466,7 +465,6 @@ describe("runStepLoop", () => {
       inputPath: projectDir,
       resolvedPath: projectDir,
       runtimeMode: "local",
-      exposedSurfaces: [],
     };
 
     vi.stubGlobal(
@@ -509,7 +507,6 @@ describe("runStepLoop", () => {
       inputPath: projectDir,
       resolvedPath: projectDir,
       runtimeMode: "local",
-      exposedSurfaces: [],
     };
 
     vi.stubGlobal(
@@ -917,7 +914,6 @@ describe("runStepLoop", () => {
       inputPath: projectDir,
       resolvedPath: projectDir,
       runtimeMode: "local",
-      exposedSurfaces: [],
     };
 
     mockRunPatch.mockResolvedValue("Patched successfully.");
@@ -972,7 +968,6 @@ describe("runStepLoop", () => {
       inputPath: projectDir,
       resolvedPath: projectDir,
       runtimeMode: "local",
-      exposedSurfaces: [],
     };
 
     mockRunPatch.mockResolvedValue("Patched successfully.");

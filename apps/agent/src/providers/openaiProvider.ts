@@ -46,7 +46,7 @@ export class OpenAIProvider implements ModelProvider {
   };
 
   isAvailable(): boolean {
-    return !!process.env.OPENAI_API_KEY;
+    return !!process.env.OPENAI_API_KEY?.trim();
   }
 
   async complete(
@@ -55,7 +55,7 @@ export class OpenAIProvider implements ModelProvider {
     model: string = DEFAULT_MODEL,
     onDelta?: (delta: ProviderStreamDelta) => void
   ): Promise<ProviderCompletionResult> {
-    const apiKey = process.env.OPENAI_API_KEY;
+    const apiKey = process.env.OPENAI_API_KEY?.trim();
     if (!apiKey) {
       throw new ProviderError("OPENAI_NO_KEY", "OPENAI_API_KEY not set");
     }

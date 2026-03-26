@@ -18,27 +18,17 @@ export class PolicyDeniedError extends Error {
 }
 
 /**
- * Get all readable roots from policy (workdir + read_only/read_write surfaces).
+ * Get readable roots from policy (resolved working directory).
  */
 function getReadableRoots(policy: WorkingDirectoryPolicy): string[] {
-  const roots = [canonicalizeExisting(policy.resolvedPath)];
-  for (const surface of policy.exposedSurfaces) {
-    roots.push(canonicalizeExisting(surface.hostPath));
-  }
-  return roots;
+  return [canonicalizeExisting(policy.resolvedPath)];
 }
 
 /**
- * Get all writable roots from policy (workdir + read_write surfaces only).
+ * Get writable roots from policy (resolved working directory).
  */
 function getWritableRoots(policy: WorkingDirectoryPolicy): string[] {
-  const roots = [canonicalizeExisting(policy.resolvedPath)];
-  for (const surface of policy.exposedSurfaces) {
-    if (surface.mode === "read_write") {
-      roots.push(canonicalizeExisting(surface.hostPath));
-    }
-  }
-  return roots;
+  return [canonicalizeExisting(policy.resolvedPath)];
 }
 
 /**
