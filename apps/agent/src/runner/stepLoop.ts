@@ -915,21 +915,22 @@ async function parseStreamingChatCompletion(
     return next;
   }
 
-  function processLine(line: string) {
+  function processLine(line: string): boolean {
     const trimmed = line.trim();
-    if (!trimmed.startsWith("data:")) return;
+    if (!trimmed.startsWith("data:")) return false;
     const data = trimmed.slice(5).trim();
-    if (!data || data === "[DONE]") return;
+    if (!data) return false;
+    if (data === "[DONE]") return true;
 
     let chunk: ChatCompletionsChunk;
     try {
       chunk = JSON.parse(data) as ChatCompletionsChunk;
     } catch {
-      return;
+      return false;
     }
 
     const delta = chunk.choices?.[0]?.delta;
-    if (!delta) return;
+    if (!delta) return false;
 
     if (typeof delta.content === "string" && delta.content.length > 0) {
       content += delta.content;
@@ -951,6 +952,8 @@ async function parseStreamingChatCompletion(
         }
       }
     }
+
+    return false;
   }
 
   let streamDone = false;
@@ -969,7 +972,12 @@ async function parseStreamingChatCompletion(
     while (newlineIndex >= 0) {
       const line = buffer.slice(0, newlineIndex);
       buffer = buffer.slice(newlineIndex + 1);
-      processLine(line);
+      const sawDone = processLine(line);
+      if (sawDone) {
+        streamDone = true;
+        await reader.cancel();
+        break;
+      }
       newlineIndex = buffer.indexOf("\n");
     }
   }
@@ -977,7 +985,10 @@ async function parseStreamingChatCompletion(
   buffer += decoder.decode();
   if (buffer.length > 0) {
     for (const line of buffer.split("\n")) {
-      processLine(line);
+      const sawDone = processLine(line);
+      if (sawDone) {
+        break;
+      }
     }
   }
 

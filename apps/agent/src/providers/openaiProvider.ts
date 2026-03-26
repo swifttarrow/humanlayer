@@ -112,11 +112,15 @@ export class OpenAIProvider implements ModelProvider {
       const lines = buffer.split("\n");
       buffer = lines.pop()!;
 
+      let sawDone = false;
       for (const line of lines) {
         const trimmed = line.trim();
         if (!trimmed.startsWith("data: ")) continue;
         const data = trimmed.slice(6);
-        if (data === "[DONE]") continue;
+        if (data === "[DONE]") {
+          sawDone = true;
+          break;
+        }
 
         try {
           const chunk = JSON.parse(data) as ChatCompletionsChunk;
@@ -153,6 +157,11 @@ export class OpenAIProvider implements ModelProvider {
         } catch {
           // Skip unparseable chunks
         }
+      }
+
+      if (sawDone) {
+        await reader.cancel();
+        break;
       }
     }
 

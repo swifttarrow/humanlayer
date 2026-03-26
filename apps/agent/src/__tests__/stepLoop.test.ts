@@ -272,6 +272,37 @@ describe("runStepLoop", () => {
     expect(result.error).toContain("stream idle timeout");
   });
 
+  it("treats [DONE] as terminal even if the stream stays open", async () => {
+    vi.stubEnv("OPENAI_MAX_RETRIES", "0");
+    vi.stubEnv("OPENAI_STREAM_IDLE_TIMEOUT_MS", "5");
+
+    const encoder = new TextEncoder();
+    const doneWithoutCloseBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode('data: {"choices":[{"delta":{"content":"Task complete."}}]}\n\n')
+        );
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        // Intentionally do not close to simulate an upstream connection that
+        // leaves the HTTP stream open after the SSE sentinel.
+      },
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        body: doneWithoutCloseBody,
+        text: async () => "",
+      })
+    );
+
+    const result = await runStepLoop(baseOpts);
+    expect(result.outcome).toBe("completed");
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("retries on 429 and succeeds on a later attempt", async () => {
     vi.stubGlobal(
       "fetch",
