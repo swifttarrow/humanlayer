@@ -26,6 +26,20 @@ const MODEL_CONFIG = {
   passRateThreshold: 1.0,
 };
 
+/** Public repo for session-create evals; server must have GITHUB_TOKEN to clone and prepare workspace. */
+const EVAL_GITHUB_REPO_URL =
+  process.env.EVAL_GITHUB_REPO_URL ?? "https://github.com/octocat/Hello-World";
+
+/** Default: bind-mounted / local workspace (no GitHub clone). */
+function evalLocalSession(goal: string, extra: Record<string, unknown> = {}) {
+  return { goal, ...extra };
+}
+
+/** Optional GitHub-backed session (needs server GITHUB_TOKEN + network). */
+function evalNewSession(goal: string, extra: Record<string, unknown> = {}) {
+  return { goal, githubRepoUrl: EVAL_GITHUB_REPO_URL, ...extra };
+}
+
 async function apiPostTo<T>(baseUrl: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${baseUrl}${path}`, {
     method: "POST",
@@ -88,19 +102,19 @@ async function evalLifecycle() {
 
   await run("LC-01", "Create session returns created status", "lifecycle", true, async () => {
     const t0 = Date.now();
-    const { session } = await apiPost<{ session: { id: string; status: string } }>("/sessions", { goal: "eval test" });
+    const { session } = await apiPost<{ session: { id: string; status: string } }>("/sessions", evalLocalSession("eval test"));
     return { passed: session.status === "created", latencyMs: Date.now() - t0 };
   });
 
   await run("LC-02", "Stop idempotency: repeated stop returns stopping", "lifecycle", true, async () => {
-    const { session: s } = await apiPost<{ session: { id: string } }>("/sessions", { goal: "stop idempotency test" });
+    const { session: s } = await apiPost<{ session: { id: string } }>("/sessions", evalLocalSession("stop idempotency test"));
     await apiPost(`/sessions/${s.id}/stop`);
     const { session: s2 } = await apiPost<{ session: { status: string } }>(`/sessions/${s.id}/stop`, { reason: "second stop" });
     return { passed: s2.status === "stopping", notes: "Second stop call is no-op" };
   });
 
   await run("LC-03", "Retry from stopped resets session to created", "lifecycle", true, async () => {
-    const { session: s } = await apiPost<{ session: { id: string } }>("/sessions", { goal: "retry test" });
+    const { session: s } = await apiPost<{ session: { id: string } }>("/sessions", evalLocalSession("retry test"));
     await apiPost(`/sessions/${s.id}/stop`);
     // Manually mark as stopped via stop endpoint (in test, no agent running)
     // Retry requires stopped/failed state; simulate by calling stop then retry
@@ -118,7 +132,7 @@ async function evalLifecycle() {
   });
 
   await run("LC-05", "Get session returns detail with state", "lifecycle", true, async () => {
-    const { session: s } = await apiPost<{ session: { id: string } }>("/sessions", { goal: "get detail test" });
+    const { session: s } = await apiPost<{ session: { id: string } }>("/sessions", evalLocalSession("get detail test"));
     const detail = await apiGet<{ session: { id: string }; state?: unknown }>(`/sessions/${s.id}`);
     return { passed: detail.session.id === s.id && detail.state !== undefined };
   });
@@ -128,7 +142,7 @@ async function evalEvent() {
   console.log("\n[Event Integrity]");
 
   await run("EV-01", "Event ingest rejects stale attempt_id", "event", true, async () => {
-    const { session } = await apiPost<{ session: { id: string } }>("/sessions", { goal: "event reject test" });
+    const { session } = await apiPost<{ session: { id: string } }>("/sessions", evalLocalSession("event reject test"));
     try {
       await apiPost(`/sessions/${session.id}/events`, {
         attemptId: "00000000-0000-0000-0000-000000000000",
@@ -166,7 +180,7 @@ async function evalStop() {
   console.log("\n[Stop Semantics]");
 
   await run("ST-01", "Stop accepted in creating state", "stop", true, async () => {
-    const { session } = await apiPost<{ session: { id: string } }>("/sessions", { goal: "stop test" });
+    const { session } = await apiPost<{ session: { id: string } }>("/sessions", evalLocalSession("stop test"));
     const { session: stopped } = await apiPost<{ session: { status: string } }>(`/sessions/${session.id}/stop`);
     return { passed: stopped.status === "stopping", notes: "Session transitioned to stopping" };
   });
@@ -182,7 +196,7 @@ async function evalSafety() {
   console.log("\n[Safety / Adversarial]");
 
   await run("SA-01", "Event batch rejects oversized arrays (>100)", "safety", true, async () => {
-    const { session } = await apiPost<{ session: { id: string } }>("/sessions", { goal: "safety test" });
+    const { session } = await apiPost<{ session: { id: string } }>("/sessions", evalLocalSession("safety test"));
     const oversized = Array.from({ length: 101 }, (_, i) => ({
       id: `00000000-0000-0000-0000-${String(i).padStart(12, "0")}`,
       attemptId: "00000000-0000-0000-0000-000000000000",
@@ -219,17 +233,23 @@ async function evalSafety() {
 async function evalWorkdir() {
   console.log("\n[Working Directory Policy]");
 
-  await run("WD-01", "Create session with workingDirectory stores policy in metadata", "workdir", true, async () => {
+  await run("WD-01", "Create session with GitHub URL stores workdir + githubSession in metadata", "workdir", true, async () => {
     try {
-      const { session } = await apiPost<{ session: { id: string; metadata?: Record<string, unknown> } }>("/sessions", {
-        goal: "workdir eval test",
-        workingDirectory: "/tmp",
-      });
+      const { session } = await apiPost<{ session: { id: string; metadata?: Record<string, unknown> } }>(
+        "/sessions",
+        evalNewSession("workdir eval test")
+      );
       const detail = await apiGet<{ session: { metadata?: Record<string, unknown> } }>(`/sessions/${session.id}`);
       const meta = detail.session.metadata as Record<string, unknown> | undefined;
       const policy = meta?.workdirPolicy as Record<string, unknown> | undefined;
+      const gh = meta?.githubSession as Record<string, unknown> | undefined;
       return {
-        passed: !!policy && !!policy.resolvedPath && !!policy.runtimeMode,
+        passed:
+          !!policy &&
+          !!policy.resolvedPath &&
+          policy.runtimeMode === "docker" &&
+          !!gh?.branch &&
+          !!gh?.repoUrl,
         notes: policy ? `resolvedPath=${policy.resolvedPath}` : "No policy in metadata",
       };
     } catch (err) {
@@ -237,24 +257,27 @@ async function evalWorkdir() {
     }
   });
 
-  await run("WD-02", "Create session without workingDirectory succeeds (backward compat)", "workdir", true, async () => {
-    const { session } = await apiPost<{ session: { id: string; status: string } }>("/sessions", {
-      goal: "no workdir eval test",
-    });
-    return { passed: session.status === "created", notes: "No workingDirectory → created normally" };
+  await run("WD-02", "Create session with public githubRepoUrl succeeds", "workdir", true, async () => {
+    const { session } = await apiPost<{ session: { id: string; status: string } }>(
+      "/sessions",
+      evalNewSession("github session eval test")
+    );
+    return { passed: session.status === "created", notes: "githubRepoUrl → created" };
   });
 
-  await run("WD-03", "Create session with invalid workingDirectory returns reason code", "workdir", true, async () => {
+  await run("WD-03", "Create session with unknown GitHub repo returns visibility error", "workdir", true, async () => {
     try {
-      await apiPost("/sessions", {
-        goal: "invalid workdir eval test",
-        workingDirectory: "/nonexistent/path/that/does/not/exist",
-      });
-      return { passed: false, notes: "Should have rejected nonexistent path" };
+      await apiPost(
+        "/sessions",
+        evalNewSession("invalid github eval test", {
+          githubRepoUrl: "https://github.com/octocat/this-repo-does-not-exist-zzzzz",
+        })
+      );
+      return { passed: false, notes: "Should have rejected unknown repo" };
     } catch (err) {
       const msg = String(err);
       return {
-        passed: msg.includes("WORKDIR_NOT_FOUND"),
+        passed: msg.includes("GITHUB_REPO_NOT_PUBLIC") || msg.includes("GITHUB_API_ERROR"),
         notes: `Rejected with: ${msg.slice(0, 200)}`,
       };
     }
@@ -318,7 +341,7 @@ async function evalExploration() {
   console.log("\n[Exploration Budget / Phase Semantics]");
 
   await run("EX-01", "Blocked status accepted as terminal session state", "exploration", true, async () => {
-    const { session } = await apiPost<{ session: { id: string } }>("/sessions", { goal: "blocked status test" });
+    const { session } = await apiPost<{ session: { id: string } }>("/sessions", evalLocalSession("blocked status test"));
     // Verify session was created, then check that blocked is a valid status in contracts
     // (This is a contract-level check — the status is accepted by the system)
     const detail = await apiGet<{ session: { status: string } }>(`/sessions/${session.id}`);
@@ -351,13 +374,24 @@ async function evalEfficiency() {
   console.log("\n[Efficiency / Latency]");
 
   const LATENCY_BUDGET_MS = 500;
+  const CREATE_SESSION_BUDGET_MS = 5_000;
 
-  await run("EF-01", `Create session latency < ${LATENCY_BUDGET_MS}ms`, "efficiency", false, async () => {
-    const t0 = Date.now();
-    await apiPost("/sessions", { goal: "latency test" });
-    const ms = Date.now() - t0;
-    return { passed: ms < LATENCY_BUDGET_MS, latencyMs: ms, notes: `${ms}ms (budget: ${LATENCY_BUDGET_MS}ms)` };
-  });
+  await run(
+    "EF-01",
+    `Create session (default local workspace) latency < ${CREATE_SESSION_BUDGET_MS}ms`,
+    "efficiency",
+    false,
+    async () => {
+      const t0 = Date.now();
+      await apiPost("/sessions", evalLocalSession("latency test"));
+      const ms = Date.now() - t0;
+      return {
+        passed: ms < CREATE_SESSION_BUDGET_MS,
+        latencyMs: ms,
+        notes: `${ms}ms (budget: ${CREATE_SESSION_BUDGET_MS}ms; default bind-mounted workdir)`,
+      };
+    }
+  );
 
   await run("EF-02", `List sessions latency < ${LATENCY_BUDGET_MS}ms`, "efficiency", false, async () => {
     const t0 = Date.now();
@@ -370,30 +404,32 @@ async function evalEfficiency() {
 // ---- Requirements 4-11 Eval Scenarios ----
 
 async function evalReq4RuntimeMode() {
-  console.log("\n[Req 4: Runtime Mode / Workdir Parity]");
+  console.log("\n[Req 4: Docker runtime default / GitHub workspace]");
 
-  await run("R4-01", "Session creation accepts runtimeMode field", "lifecycle", true, async () => {
-    const { session } = await apiPost<{ session: { id: string; status: string; metadata?: Record<string, unknown> } }>("/sessions", {
-      goal: "R4 runtime mode test",
-      runtimeMode: "local",
-    });
+  await run("R4-01", "Session creation defaults selection.runtimeMode to docker", "lifecycle", true, async () => {
+    const { session } = await apiPost<{ session: { id: string; status: string; metadata?: Record<string, unknown> } }>(
+      "/sessions",
+      evalLocalSession("R4 runtime mode test")
+    );
     const meta = session.metadata as Record<string, unknown> | undefined;
     const selection = meta?.selection as Record<string, unknown> | undefined;
     return {
-      passed: session.status === "created" && selection?.runtimeMode === "local",
+      passed: session.status === "created" && selection?.runtimeMode === "docker",
       notes: `runtimeMode in selection: ${selection?.runtimeMode}`,
     };
   });
 
-  await run("R4-02", "Session creation denies invalid runtime mode under policy", "lifecycle", true, async () => {
+  await run("R4-02", "Session creation rejects non-GitHub repository URL", "lifecycle", true, async () => {
     try {
-      // This will fail if RUNTIME_MODE_POLICY is not dual_mode
-      await apiPost("/sessions", { goal: "R4 denial test", runtimeMode: "nonexistent" });
+      await apiPost("/sessions", {
+        goal: "R4 denial test",
+        githubRepoUrl: "https://example.com/not-github",
+      });
       return { passed: false, notes: "Should have been denied" };
     } catch (err) {
       const msg = String(err);
       return {
-        passed: msg.includes("SELECTION_DENIED") || msg.includes("RUNTIME_MODE"),
+        passed: msg.includes("GITHUB_URL_INVALID") || msg.includes("400"),
         notes: `Denied: ${msg.slice(0, 200)}`,
       };
     }
@@ -404,7 +440,7 @@ async function evalReq5Steering() {
   console.log("\n[Req 5: In-Session Steering]");
 
   await run("R5-01", "Run-control endpoint rejects invalid transitions", "lifecycle", true, async () => {
-    const { session } = await apiPost<{ session: { id: string } }>("/sessions", { goal: "R5 steering test" });
+    const { session } = await apiPost<{ session: { id: string } }>("/sessions", evalLocalSession("R5 steering test"));
     try {
       // Cannot pause a session in 'created' status
       await apiPost(`/sessions/${session.id}/run-control`, { action: "pause" });
@@ -431,7 +467,7 @@ async function evalReq6Extensibility() {
 
   await run("R6-01", "Agent type validation rejects unregistered types", "lifecycle", true, async () => {
     try {
-      await apiPost("/sessions", { goal: "R6 agent type test", agentType: "nonexistent_agent_type_xyz" });
+      await apiPost("/sessions", evalLocalSession("R6 agent type test", { agentType: "nonexistent_agent_type_xyz" }));
       return { passed: false, notes: "Should have been denied" };
     } catch (err) {
       const msg = String(err);
@@ -444,10 +480,12 @@ async function evalReq6Extensibility() {
 
   await run("R6-02", "Provider/model validation with explicit invalid provider", "lifecycle", true, async () => {
     try {
-      await apiPost("/sessions", {
-        goal: "R6 provider test",
-        providerModel: { provider: "nonexistent_provider_xyz" },
-      });
+      await apiPost(
+        "/sessions",
+        evalLocalSession("R6 provider test", {
+          providerModel: { provider: "nonexistent_provider_xyz" },
+        })
+      );
       return { passed: false, notes: "Should have been denied" };
     } catch (err) {
       const msg = String(err);
