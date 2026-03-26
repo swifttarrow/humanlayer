@@ -2,6 +2,7 @@ import type {
   CreateSessionRequest,
   CreateSessionResponse,
   GetSessionResponse,
+  ListEventsResponse,
   ListSessionsResponse,
   Session,
   StopSessionResponse,
@@ -43,6 +44,7 @@ export const api = {
       post<StopSessionResponse>(`/sessions/${id}/stop`, { reason }),
     retry: (id: string) => post<RetrySessionResponse>(`/sessions/${id}/retry`),
     dismissIdleStop: (id: string) => post<StopSessionResponse>(`/sessions/${id}/idle-dismiss`),
+    listEvents: (id: string) => get<ListEventsResponse>(`/sessions/${id}/events`),
     stream: (
       onEvent: (event: SessionsStreamEvent) => void,
       onError?: (err: Event) => void

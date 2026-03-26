@@ -196,10 +196,51 @@ const STEERING_COLORS: Record<string, string> = {
   "steering.clarification_responded": "#60A5FA",
 };
 
+/** User-facing headline for `session.blocked` reason codes (agent/server). */
+const BLOCKED_REASON_TITLES: Record<string, string> = {
+  patch_apply_failed: "Edits could not be applied",
+  patch_not_validated: "Project checks failed after edits",
+  exploration_budget_exhausted: "Exploration limit reached",
+  no_credible_target: "No actionable target found",
+  insufficient_context: "Not enough context to continue",
+};
+
+function truncateDetail(s: string, max: number): string {
+  const t = s.trim();
+  if (t.length <= max) return t;
+  return `${t.slice(0, max - 1)}…`;
+}
+
+/** Latest tool-level error (non-zero shell or failed tool) — more specific than the session summary alone. */
+function getLastFailureDetail(events: SessionEvent[]): string | undefined {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const ev = events[i];
+    const p = ev.payload ?? {};
+    if (ev.eventType === "tool.failed") {
+      const r = typeof p.result === "string" ? p.result : undefined;
+      if (r?.trim()) {
+        return truncateDetail(r.replace(/^Error:\s*(Error:\s*)?/i, ""), 550);
+      }
+    }
+    if (ev.eventType === "tool.completed" && p.toolName === "run_shell") {
+      const r = typeof p.result === "string" ? p.result : undefined;
+      const exitM = r?.trim().match(/^Exit code (\d+)/i);
+      if (exitM && exitM[1] !== "0") {
+        return truncateDetail(r!, 550);
+      }
+    }
+  }
+  return undefined;
+}
+
 export function StructuredTrace({ events, currentTool }: Props) {
   const { steps, outcome, currentPhase, steeringEvents } = buildSteps(events);
   const groupedSteps = groupStepsByPrompt(steps);
   const [expandedSteps, setExpandedSteps] = useState<Record<string, boolean>>({});
+  const failureDetail =
+    outcome && (outcome.type === "blocked" || outcome.type === "failed")
+      ? getLastFailureDetail(events)
+      : undefined;
 
   if (steps.length === 0) {
     return null;
@@ -411,15 +452,52 @@ export function StructuredTrace({ events, currentTool }: Props) {
             <span style={{ color: "#94A3B8", fontSize: 13, fontWeight: 600 }}>
               {outcome.type === "blocked" ? "Blocked" : outcome.type.charAt(0).toUpperCase() + outcome.type.slice(1)}
             </span>
-            {outcome.reason && (
+            {outcome.type === "blocked" && outcome.reason && (
+              <span style={{ color: "#E7E5E4", fontSize: 13, fontWeight: 600 }}>
+                {" — "}
+                {BLOCKED_REASON_TITLES[outcome.reason] ?? outcome.reason}
+              </span>
+            )}
+            {outcome.type !== "blocked" && outcome.reason && (
               <span style={{ color: "#64748B", fontSize: 11, fontFamily: "'JetBrains Mono', monospace" }}>
                 — {outcome.reason}
+              </span>
+            )}
+            {outcome.type === "blocked" && outcome.reason && BLOCKED_REASON_TITLES[outcome.reason] && (
+              <span style={{ color: "#64748B", fontSize: 10, fontFamily: "'JetBrains Mono', monospace" }}>
+                {" "}
+                ({outcome.reason})
               </span>
             )}
           </div>
           {outcome.summary && (
             <div style={{ color: "#94A3B8", fontSize: 12, marginTop: 8, lineHeight: 1.5 }}>
               {outcome.summary}
+            </div>
+          )}
+          {failureDetail && (
+            <div style={{ marginTop: 12 }}>
+              <div style={{ color: "#64748B", fontSize: 10, fontWeight: 600, letterSpacing: 1, marginBottom: 4 }}>
+                LATEST TOOL OUTPUT
+              </div>
+              <pre
+                style={{
+                  margin: 0,
+                  padding: 10,
+                  background: "#0F172A",
+                  border: "1px solid #334155",
+                  borderRadius: 6,
+                  color: "#CBD5E1",
+                  fontSize: 11,
+                  fontFamily: "'JetBrains Mono', monospace",
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  maxHeight: 200,
+                  overflowY: "auto",
+                }}
+              >
+                {failureDetail}
+              </pre>
             </div>
           )}
         </div>

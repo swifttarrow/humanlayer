@@ -9,6 +9,40 @@ import { ChangesPanel } from "../components/ChangesPanel.js";
 import { TerminalPanel } from "../components/TerminalPanel.js";
 import { getIdleStopInfo, getSessionDisplayTitle } from "../sessionIdle.js";
 
+function compareSessionEvents(a: SessionEvent, b: SessionEvent): number {
+  const t = a.eventTime.localeCompare(b.eventTime);
+  if (t !== 0) return t;
+  return a.id.localeCompare(b.id);
+}
+
+/** Root → immediate parent, for stitching trace history across follow-up sessions. */
+async function collectAncestorSessionIds(session: Session): Promise<string[]> {
+  const chain: string[] = [];
+  const seen = new Set<string>([session.id]);
+  const meta = session.metadata as Record<string, unknown> | undefined;
+  let pid = typeof meta?.parentSessionId === "string" ? meta.parentSessionId : undefined;
+  while (pid) {
+    if (seen.has(pid)) break;
+    seen.add(pid);
+    chain.push(pid);
+    const res = await api.sessions.get(pid);
+    const m = res.session.metadata as Record<string, unknown> | undefined;
+    pid = typeof m?.parentSessionId === "string" ? m.parentSessionId : undefined;
+  }
+  return chain.reverse();
+}
+
+/** Re-validate local cwd on follow-up; skip when parent is GitHub (enteredPath is a URL). */
+function workingDirectoryForFollowupCreate(session: Session | null): string | undefined {
+  if (!session?.metadata) return undefined;
+  const m = session.metadata as Record<string, unknown>;
+  if (m.githubSession) return undefined;
+  const wd = m.workdirDetails as Record<string, unknown> | undefined;
+  if (wd?.source === "github") return undefined;
+  const p = wd?.canonicalPath ?? wd?.enteredPath;
+  return typeof p === "string" && p.trim().length > 0 ? p.trim() : undefined;
+}
+
 export function SessionDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -22,7 +56,8 @@ export function SessionDetailPage() {
   const [submittingReply, setSubmittingReply] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [activeTab, setActiveTab] = useState<"trace" | "changes" | "logs">("trace");
-  const lastSeqRef = useRef(-1);
+  /** Max sequenceNumber for the *current* session only — parent sessions reuse 1..N and must not affect SSE `since`. */
+  const lastChildSequenceRef = useRef(-1);
   const esRef = useRef<EventSource | null>(null);
 
   const connect = useCallback(() => {
@@ -31,7 +66,7 @@ export function SessionDetailPage() {
 
     const es = api.stream(
       id,
-      lastSeqRef.current,
+      lastChildSequenceRef.current,
       (sseEvent) => {
         if (sseEvent.type === "snapshot") {
           setSession(sseEvent.data as Session);
@@ -41,9 +76,8 @@ export function SessionDetailPage() {
           if (ev.sessionId !== id) return;
           setEvents((prev) => {
             if (prev.some((e) => e.id === ev.id)) return prev;
-            const next = [...prev, ev].sort((a, b) => a.sequenceNumber - b.sequenceNumber);
-            lastSeqRef.current = next[next.length - 1]?.sequenceNumber ?? lastSeqRef.current;
-            return next;
+            lastChildSequenceRef.current = Math.max(lastChildSequenceRef.current, ev.sequenceNumber);
+            return [...prev, ev].sort(compareSessionEvents);
           });
           if (
             ev.eventType === "session.completed" ||
@@ -67,26 +101,47 @@ export function SessionDetailPage() {
     esRef.current = es;
   }, [id]);
 
-  // Initial load + SSE
+  // Initial load: ancestor traces + SSE for this session only
   useEffect(() => {
     if (!id) return;
 
-    // New session id: each session has its own sequence space starting at 1. Without a reset,
-    // follow-up navigation would merge the previous session's events with the new one's when
-    // sorting by sequenceNumber (interleaved steps and alternating prompt groups).
-    lastSeqRef.current = -1;
+    lastChildSequenceRef.current = -1;
     setEvents([]);
 
-    api.sessions
-      .get(id)
-      .then((res) => {
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const res = await api.sessions.get(id);
+        if (cancelled) return;
         setSession(res.session);
         if (res.state) setState(res.state);
-      })
-      .catch((err: unknown) => setError(String(err)));
 
-    connect();
-    return () => esRef.current?.close();
+        const ancestorIds = await collectAncestorSessionIds(res.session);
+        const fromAncestors: SessionEvent[] = [];
+        const seenIds = new Set<string>();
+        for (const aid of ancestorIds) {
+          const { events: evs } = await api.sessions.listEvents(aid);
+          for (const e of evs) {
+            if (seenIds.has(e.id)) continue;
+            seenIds.add(e.id);
+            fromAncestors.push(e);
+          }
+        }
+        fromAncestors.sort(compareSessionEvents);
+        if (cancelled) return;
+        setEvents(fromAncestors);
+      } catch (err: unknown) {
+        if (!cancelled) setError(String(err));
+      } finally {
+        if (!cancelled) connect();
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      esRef.current?.close();
+    };
   }, [id, connect]);
 
   const handleStop = async () => {
@@ -109,7 +164,7 @@ export function SessionDetailPage() {
       const res = await api.sessions.retry(id);
       setSession(res.session);
       setEvents([]);
-      lastSeqRef.current = -1;
+      lastChildSequenceRef.current = -1;
       connect();
     } catch (err) {
       setError(String(err));
@@ -123,8 +178,10 @@ export function SessionDetailPage() {
     setSubmittingReply(true);
     setError(null);
     try {
+      const wd = workingDirectoryForFollowupCreate(session);
       const res = await api.sessions.create({
         goal: reply.trim(),
+        ...(wd ? { workingDirectory: wd } : {}),
         metadata: {
           parentSessionId: id,
           followup: true,
