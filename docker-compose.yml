@@ -8,7 +8,8 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U humanlayer"]
+      # Default db name would match user (humanlayer); POSTGRES_DB is humanlayer_dev
+      test: ["CMD-SHELL", "pg_isready -U humanlayer -d humanlayer_dev"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -57,7 +58,7 @@ services:
       RUNTIME_MODE: docker
     volumes:
       - ${WORKSPACE_PATH:-./_workspace}:/workspace
-    working_dir: /workspace
+    # Keep image WORKDIR (/app/apps/agent); do not set working_dir to /workspace or `node dist/...` resolves there.
     # No ports — outbound-only
     read_only: true
     tmpfs:

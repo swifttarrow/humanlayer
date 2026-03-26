@@ -40,4 +40,4 @@ ENV NODE_ENV=production
 
 USER agent
 
-CMD ["node", "dist/apps/agent/src/main.js"]
+CMD ["node", "/app/apps/agent/dist/apps/agent/src/main.js"]
