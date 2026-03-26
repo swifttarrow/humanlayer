@@ -81,7 +81,10 @@ export type BlockedReason =
   | "exploration_budget_exhausted"
   | "no_credible_target"
   | "insufficient_context"
-  | "patch_not_validated";
+  /** Inferred npm script (typecheck/build/test/lint) failed twice after a successful patch */
+  | "patch_not_validated"
+  /** apply_patch failed twice in a row (e.g. bad hunk, missing parent directory) */
+  | "patch_apply_failed";
 
 /**
  * Terminal summary payload for session.blocked and session.failed events.
