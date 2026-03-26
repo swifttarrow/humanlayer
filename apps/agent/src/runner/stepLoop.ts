@@ -6,6 +6,7 @@ import { heartbeat, listSessionEvents, getSessionMetadata } from "../api.js";
 import { runFileSearch, runFileRead, runFileReadRange } from "../tools/fileTools.js";
 import { runPatch } from "../tools/patchTool.js";
 import { runShell } from "../tools/shellTool.js";
+import { commitAndPushSessionBranch } from "../tools/gitSync.js";
 import type {
   WorkingDirectoryPolicy,
   SessionPhase,
@@ -181,6 +182,8 @@ export interface StepLoopOptions {
   parentSessionId?: string;
   /** Server-resolved working directory policy from session metadata */
   workdirPolicy?: WorkingDirectoryPolicy;
+  /** When set, successful apply_patch runs git commit + push on this branch */
+  gitSession?: { branch: string };
 }
 
 export interface StepLoopResult {
@@ -499,6 +502,20 @@ export async function runStepLoop(opts: StepLoopOptions): Promise<StepLoopResult
 
         try {
           result = await executeTool(toolUse.function.name, parsedInput, opts.workdirPolicy);
+          if (
+            toolUse.function.name === "apply_patch" &&
+            opts.gitSession &&
+            opts.workdirPolicy?.resolvedPath
+          ) {
+            const gitNote = await commitAndPushSessionBranch({
+              repoRoot: opts.workdirPolicy.resolvedPath,
+              branch: opts.gitSession.branch,
+              sessionId: opts.sessionId,
+            });
+            if (gitNote) {
+              result = `${result}\n\n${gitNote}`;
+            }
+          }
         } catch (err) {
           result = `Error: ${String(err)}`;
           isError = true;

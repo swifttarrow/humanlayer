@@ -40,6 +40,11 @@ async function pollAndRun() {
       const parentSessionId = typeof metadata?.parentSessionId === "string"
         ? metadata.parentSessionId
         : undefined;
+      const ghSession = metadata?.githubSession as { branch?: string } | undefined;
+      const gitSession =
+        ghSession && typeof ghSession.branch === "string"
+          ? { branch: ghSession.branch }
+          : undefined;
 
       const outcome = await runStepLoop({
         sessionId: session.id,
@@ -48,6 +53,7 @@ async function pollAndRun() {
         goal: session.goal,
         parentSessionId,
         workdirPolicy,
+        gitSession,
       });
       console.log(`[agent] Session ${session.id} finished: ${outcome.outcome}`);
     } finally {

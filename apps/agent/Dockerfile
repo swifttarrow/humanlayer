@@ -17,6 +17,8 @@ RUN npm run build --workspace=apps/agent
 # ---- Runtime ----
 FROM node:20-alpine AS runtime
 
+RUN apk add --no-cache git
+
 # Create non-root user for agent execution
 RUN addgroup -S agent && adduser -S agent -G agent
 
