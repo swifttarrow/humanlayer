@@ -1,5 +1,54 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createSession, stopSession, retrySession, getSession } from "../services/sessionService.js";
+
+const mockPrepareGithub = vi.hoisted(() =>
+  vi.fn().mockResolvedValue({
+    workdirPolicy: {
+      inputPath: "https://github.com/o/r",
+      resolvedPath: "/tmp/hl-repo",
+      runtimeMode: "docker",
+    },
+    githubSession: {
+      repoUrl: "https://github.com/o/r",
+      owner: "o",
+      repo: "r",
+      branch: "humanlayer/session-abc",
+      cloneHttpsUrl: "https://github.com/o/r.git",
+    },
+    workdirDetails: {
+      enteredPath: "https://github.com/o/r",
+      canonicalPath: "/tmp/hl-repo",
+      selectedMode: "docker",
+      effectiveMode: "docker",
+      source: "github",
+    },
+  })
+);
+
+const mockPrepareDefaultLocal = vi.hoisted(() =>
+  vi.fn().mockResolvedValue({
+    workdirPolicy: {
+      inputPath: "/workspace",
+      resolvedPath: "/workspace",
+      runtimeMode: "docker",
+    },
+    workdirDetails: {
+      enteredPath: "/workspace",
+      canonicalPath: "/workspace",
+      selectedMode: "docker",
+      effectiveMode: "docker",
+      source: "local_bind_mount",
+    },
+  })
+);
+
+vi.mock("../services/githubWorkspaceService.js", () => ({
+  prepareGithubSessionWorkspace: mockPrepareGithub,
+}));
+
+vi.mock("../services/localWorkspaceService.js", () => ({
+  prepareDefaultLocalWorkspace: mockPrepareDefaultLocal,
+}));
 
 // ---- helpers to build mock DB ----
 
@@ -53,19 +102,41 @@ function makeDb(tx: ReturnType<typeof makeTx>) {
 // ---- tests ----
 
 describe("createSession", () => {
-  it("creates a session in 'created' status", async () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("creates a session using default local workspace when no github or workdir", async () => {
     const tx = makeTx();
     const db = makeDb(tx);
 
     const result = await createSession({ goal: "test goal" }, db);
 
+    expect(mockPrepareDefaultLocal).toHaveBeenCalled();
+    expect(mockPrepareGithub).not.toHaveBeenCalled();
     expect(tx.session.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ status: "created", goal: "test goal" }) })
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "created",
+          goal: "test goal",
+          id: expect.any(String),
+        }),
+      })
     );
     expect(tx.sessionState.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: "created" }) })
     );
     expect(result.status).toBe("created");
+  });
+
+  it("uses GitHub workspace when githubRepoUrl is set", async () => {
+    const tx = makeTx();
+    const db = makeDb(tx);
+
+    await createSession({ goal: "g", githubRepoUrl: "https://github.com/o/r" }, db);
+
+    expect(mockPrepareGithub).toHaveBeenCalled();
+    expect(mockPrepareDefaultLocal).not.toHaveBeenCalled();
   });
 
   it("inherits workdirPolicy from parent session on follow-up when not provided", async () => {
@@ -96,6 +167,8 @@ describe("createSession", () => {
       db
     );
 
+    expect(mockPrepareGithub).not.toHaveBeenCalled();
+    expect(mockPrepareDefaultLocal).not.toHaveBeenCalled();
     expect(tx.session.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({

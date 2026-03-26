@@ -476,8 +476,6 @@ export type ExtendedSessionEventType =
  * Request to create a session with extended selection fields.
  */
 export interface ExtendedCreateSessionRequest extends CreateSessionRequest {
-  /** Requested runtime mode (overrides system default) */
-  runtimeMode?: RuntimeMode;
   /** Provider/model selection */
   providerModel?: ProviderModelSelection;
 }
@@ -519,7 +517,12 @@ export interface CreateSessionRequest {
   goal: string;
   agentType?: string;
   metadata?: Record<string, unknown>;
-  /** Optional working directory for the agent session */
+  /**
+   * Optional public GitHub URL: server clones into a session directory and configures push (requires GITHUB_TOKEN).
+   * When omitted, the agent uses SESSION_DEFAULT_WORKDIR (e.g. bind-mounted /workspace in Docker).
+   */
+  githubRepoUrl?: string;
+  /** Optional working directory; overrides default local workspace when set */
   workingDirectory?: string;
 }
 

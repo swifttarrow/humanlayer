@@ -1,6 +1,6 @@
 FROM node:20-bookworm-slim AS base
 WORKDIR /app
-RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
+RUN apt-get update -y && apt-get install -y openssl git && rm -rf /var/lib/apt/lists/*
 
 # Copy root workspace manifests
 COPY package.json package-lock.json ./
@@ -25,7 +25,7 @@ RUN npm run build --workspace=apps/server
 # ---- Runtime ----
 FROM node:20-bookworm-slim AS runtime
 WORKDIR /app
-RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
+RUN apt-get update -y && apt-get install -y openssl git && rm -rf /var/lib/apt/lists/*
 
 COPY --from=base /app/node_modules ./node_modules
 COPY --from=base /app/packages/shared/dist ./packages/shared/dist

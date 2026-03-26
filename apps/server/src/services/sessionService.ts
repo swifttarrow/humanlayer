@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import type { PrismaClient } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { prisma as defaultPrisma } from "../db.js";
@@ -12,9 +13,20 @@ import type {
   AttemptStatus,
 } from "@humanlayer/shared";
 import { validateWorkingDirectory } from "./workdirPolicyService.js";
+import { prepareGithubSessionWorkspace } from "./githubWorkspaceService.js";
+import { prepareDefaultLocalWorkspace } from "./localWorkspaceService.js";
 
 const IDLE_WARNING_DELAY_MS = 5 * 60 * 1000;
 const IDLE_STOP_DELAY_MS = 30 * 1000;
+
+/** Follow-up session but parent has no workspace in metadata */
+export class FollowUpWorkspaceError extends Error {
+  readonly code = "FOLLOWUP_WORKSPACE_MISSING" as const;
+  constructor() {
+    super("Parent session has no workspace to inherit.");
+    this.name = "FollowUpWorkspaceError";
+  }
+}
 
 function withIdleSchedule(now = Date.now()): Record<string, unknown> {
   const warningAt = new Date(now + IDLE_WARNING_DELAY_MS).toISOString();
@@ -74,34 +86,53 @@ export async function createSession(
   input: CreateSessionRequest,
   db: PrismaClient = defaultPrisma
 ) {
-  // Validate and canonicalize working directory if provided
+  const sessionId = randomUUID();
   let metadata: Record<string, unknown> = input.metadata ? { ...input.metadata } : {};
   const title = await summarizeGoalTitle(input.goal);
   if (title) {
     metadata.title = title;
   }
 
-  if (input.workingDirectory) {
-    const policy = await validateWorkingDirectory(input.workingDirectory);
+  const isFollowUp =
+    typeof metadata.parentSessionId === "string" && metadata.parentSessionId.length > 0;
+
+  if (input.githubRepoUrl?.trim()) {
+    const prep = await prepareGithubSessionWorkspace(sessionId, input.githubRepoUrl.trim());
+    metadata.workdirPolicy = prep.workdirPolicy;
+    metadata.githubSession = prep.githubSession;
+    metadata.workdirDetails = prep.workdirDetails;
+  } else if (input.workingDirectory?.trim()) {
+    const policy = await validateWorkingDirectory(input.workingDirectory.trim());
     metadata.workdirPolicy = policy;
-    // Persist canonical path details for session metadata
     metadata.workdirDetails = {
-      enteredPath: input.workingDirectory,
+      enteredPath: input.workingDirectory.trim(),
       canonicalPath: policy.resolvedPath,
       selectedMode: policy.runtimeMode,
       effectiveMode: policy.runtimeMode,
+      source: "local_explicit",
     };
-  } else if (!metadata.workdirPolicy && typeof metadata.parentSessionId === "string") {
-    // Follow-up sessions inherit workdir policy from their parent when the caller
-    // does not provide a new workingDirectory override.
+  } else if (isFollowUp) {
     const parent = await db.session.findUnique({
-      where: { id: metadata.parentSessionId },
+      where: { id: metadata.parentSessionId as string },
       select: { metadata: true },
     });
     const parentMetadata = (parent?.metadata ?? null) as Record<string, unknown> | null;
     if (parentMetadata?.workdirPolicy) {
       metadata.workdirPolicy = parentMetadata.workdirPolicy;
     }
+    if (parentMetadata?.githubSession) {
+      metadata.githubSession = parentMetadata.githubSession;
+    }
+    if (parentMetadata?.workdirDetails) {
+      metadata.workdirDetails = parentMetadata.workdirDetails;
+    }
+    if (!metadata.workdirPolicy) {
+      throw new FollowUpWorkspaceError();
+    }
+  } else {
+    const local = await prepareDefaultLocalWorkspace();
+    metadata.workdirPolicy = local.workdirPolicy;
+    metadata.workdirDetails = local.workdirDetails;
   }
 
   // If selection metadata was passed in, persist selected vs effective mode
@@ -121,6 +152,7 @@ export async function createSession(
   return db.$transaction(async (tx) => {
     const session = await tx.session.create({
       data: {
+        id: sessionId,
         status: "created",
         goal: input.goal,
         agentType: input.agentType ?? "default",

@@ -16,13 +16,13 @@ import type {
 function getRuntimeModePolicy(): RuntimeModePolicy {
   const val = process.env.RUNTIME_MODE_POLICY;
   if (val === "local_only" || val === "docker_only" || val === "dual_mode") return val;
-  return "local_only";
+  return "docker_only";
 }
 
 function getDefaultRuntimeMode(): RuntimeMode {
   const val = process.env.RUNTIME_MODE;
   if (val === "local" || val === "docker") return val;
-  return "local";
+  return "docker";
 }
 
 function getDefaultProvider(): string {

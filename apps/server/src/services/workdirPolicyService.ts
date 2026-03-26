@@ -32,8 +32,8 @@ export interface PolicyServiceConfig {
 }
 
 const DEFAULT_CONFIG: PolicyServiceConfig = {
-  runtimeMode: (process.env.RUNTIME_MODE as RuntimeMode) ?? "local",
-  runtimeModePolicy: (process.env.RUNTIME_MODE_POLICY as RuntimeModePolicy) ?? "local_only",
+  runtimeMode: (process.env.RUNTIME_MODE as RuntimeMode) ?? "docker",
+  runtimeModePolicy: (process.env.RUNTIME_MODE_POLICY as RuntimeModePolicy) ?? "docker_only",
 };
 
 /**

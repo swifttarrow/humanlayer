@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { WorkdirValidationError } from "../services/workdirPolicyService.js";
+import { GithubRepoValidationError } from "../services/githubWorkspaceService.js";
 import {
   createSession,
   listSessions,
@@ -8,6 +9,7 @@ import {
   stopSession,
   retrySession,
   dismissIdleStop,
+  FollowUpWorkspaceError,
 } from "../services/sessionService.js";
 import { resolveSessionSelections } from "../services/policySelectionService.js";
 
@@ -23,7 +25,7 @@ const CreateSessionSchema = z.object({
   agentType: z.string().optional(),
   metadata: z.record(z.unknown()).optional(),
   workingDirectory: z.string().optional(),
-  runtimeMode: z.enum(["local", "docker"]).optional(),
+  githubRepoUrl: z.string().optional(),
   providerModel: ProviderModelSchema.optional(),
 });
 
@@ -106,9 +108,7 @@ sessionsRouter.post("/", async (req, res) => {
     return;
   }
 
-  // Run selection policy validation
   const selection = resolveSessionSelections({
-    runtimeMode: parsed.data.runtimeMode,
     agentType: parsed.data.agentType,
     provider: parsed.data.providerModel?.provider,
     model: parsed.data.providerModel?.model,
@@ -137,9 +137,24 @@ sessionsRouter.post("/", async (req, res) => {
         },
       },
       workingDirectory: parsed.data.workingDirectory,
+      githubRepoUrl: parsed.data.githubRepoUrl?.trim(),
     });
     res.status(201).json({ session });
   } catch (err) {
+    if (err instanceof FollowUpWorkspaceError) {
+      res.status(422).json({
+        error: err.message,
+        code: err.code,
+      });
+      return;
+    }
+    if (err instanceof GithubRepoValidationError) {
+      res.status(422).json({
+        error: err.message,
+        code: err.code,
+      });
+      return;
+    }
     if (err instanceof WorkdirValidationError) {
       res.status(422).json({
         error: err.message,
