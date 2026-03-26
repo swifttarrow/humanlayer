@@ -128,7 +128,7 @@ All must-pass scenarios must be green to exit 0. Efficiency failures are warning
 
 **WD-02 fixture**: `POST /sessions { goal: "no workdir" }` → expect `session.status === "created"` (no error)
 
-**WD-03 fixture**: `POST /sessions { goal: "invalid", workingDirectory: "/nonexistent/path" }` → expect HTTP 422 with `WORKDIR_NOT_FOUND` or `WORKDIR_NOT_ALLOWED` reason code
+**WD-03 fixture**: `POST /sessions { goal: "invalid", workingDirectory: "/nonexistent/path" }` → expect HTTP 422 with `WORKDIR_NOT_FOUND` reason code
 
 **WD-04 fixture**: if `PARITY_SERVER_URL` is set, submit a small set of identical `workingDirectory` values to both servers and compare allow/deny outcomes. Expected result: outcomes match for each sampled path. If `PARITY_SERVER_URL` is unset, scenario is skipped and marked advisory pass.
 

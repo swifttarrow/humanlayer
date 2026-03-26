@@ -2,7 +2,6 @@ import { realpath, stat } from "fs/promises";
 import path from "path";
 import os from "os";
 import type {
-  ExposedSurface,
   RuntimeMode,
   RuntimeModePolicy,
   WorkingDirectoryPolicy,
@@ -26,8 +25,6 @@ export class WorkdirValidationError extends Error {
 }
 
 export interface PolicyServiceConfig {
-  /** Allowed root directories for working directories */
-  allowedRoots: string[];
   /** Runtime mode */
   runtimeMode: RuntimeMode;
   /** Runtime mode policy — controls which modes are available */
@@ -35,9 +32,6 @@ export interface PolicyServiceConfig {
 }
 
 const DEFAULT_CONFIG: PolicyServiceConfig = {
-  allowedRoots: process.env.WORKDIR_ALLOWED_ROOTS
-    ? process.env.WORKDIR_ALLOWED_ROOTS.split(",").map((r) => r.trim())
-    : ["/tmp"],
   runtimeMode: (process.env.RUNTIME_MODE as RuntimeMode) ?? "local",
   runtimeModePolicy: (process.env.RUNTIME_MODE_POLICY as RuntimeModePolicy) ?? "local_only",
 };
@@ -79,58 +73,16 @@ function expandHomeDir(inputPath: string): string {
 }
 
 /**
- * Check if a canonical path is under one of the allowed roots.
- */
-function isUnderAllowedRoot(canonicalPath: string, allowedRoots: string[]): boolean {
-  return allowedRoots.some((root) => {
-    const normalizedRoot = root.endsWith("/") ? root : root + "/";
-    return canonicalPath === root || canonicalPath.startsWith(normalizedRoot);
-  });
-}
-
-/**
  * Validate and canonicalize a working directory path.
  * Returns a normalized WorkingDirectoryPolicy on success, throws WorkdirValidationError on failure.
  */
-/**
- * Resolve allowed roots to their canonical paths (handles /tmp -> /private/tmp on macOS etc.)
- */
-async function resolveAllowedRoots(roots: string[]): Promise<string[]> {
-  const resolved: string[] = [];
-  for (const root of roots) {
-    try {
-      resolved.push(await realpath(path.resolve(root)));
-    } catch {
-      // Skip roots that don't exist
-      resolved.push(path.resolve(root));
-    }
-  }
-  return resolved;
-}
-
 export async function validateWorkingDirectory(
   inputPath: string,
-  exposedSurfaces: ExposedSurface[] = [],
   config: PolicyServiceConfig = DEFAULT_CONFIG
 ): Promise<WorkingDirectoryPolicy> {
   const expandedInputPath = expandHomeDir(inputPath);
-  // Resolve to absolute path
   const absolutePath = path.resolve(expandedInputPath);
-  const absoluteRoots = config.allowedRoots.map((root) => path.resolve(root));
 
-  // Resolve allowed roots to canonical paths
-  const resolvedRoots = await resolveAllowedRoots(config.allowedRoots);
-
-  // Check input/source path is under allowed roots before symlink resolution
-  if (!isUnderAllowedRoot(absolutePath, absoluteRoots)) {
-    throw new WorkdirValidationError(
-      "WORKDIR_NOT_ALLOWED",
-      `Working directory is outside allowed roots: ${inputPath}`,
-      inputPath
-    );
-  }
-
-  // Check existence and resolve symlinks
   let resolvedPath: string;
   try {
     resolvedPath = await realpath(absolutePath);
@@ -142,7 +94,6 @@ export async function validateWorkingDirectory(
     );
   }
 
-  // Check it's a directory
   try {
     const stats = await stat(resolvedPath);
     if (!stats.isDirectory()) {
@@ -161,50 +112,9 @@ export async function validateWorkingDirectory(
     );
   }
 
-  // Check the resolved path is within allowed roots
-  if (!isUnderAllowedRoot(resolvedPath, resolvedRoots)) {
-    throw new WorkdirValidationError(
-      "WORKDIR_NOT_ALLOWED",
-      `Working directory is outside allowed roots: ${inputPath}`,
-      inputPath
-    );
-  }
-
-  // Validate exposed surfaces
-  for (const surface of exposedSurfaces) {
-    const surfaceAbsolute = path.resolve(expandHomeDir(surface.hostPath));
-    if (!isUnderAllowedRoot(surfaceAbsolute, absoluteRoots)) {
-      throw new WorkdirValidationError(
-        "EXPOSED_SURFACE_NOT_ALLOWED",
-        `Exposed surface is outside allowed roots: ${surface.hostPath}`,
-        surface.hostPath
-      );
-    }
-
-    let surfaceResolved: string;
-    try {
-      surfaceResolved = await realpath(surfaceAbsolute);
-    } catch {
-      throw new WorkdirValidationError(
-        "EXPOSED_SURFACE_NOT_ALLOWED",
-        `Exposed surface path not found: ${surface.hostPath}`,
-        surface.hostPath
-      );
-    }
-
-    if (!isUnderAllowedRoot(surfaceResolved, resolvedRoots)) {
-      throw new WorkdirValidationError(
-        "EXPOSED_SURFACE_NOT_ALLOWED",
-        `Exposed surface is outside allowed roots: ${surface.hostPath}`,
-        surface.hostPath
-      );
-    }
-  }
-
   return {
     inputPath,
     resolvedPath,
     runtimeMode: config.runtimeMode,
-    exposedSurfaces,
   };
 }

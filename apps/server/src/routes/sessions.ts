@@ -13,12 +13,6 @@ import { resolveSessionSelections } from "../services/policySelectionService.js"
 
 export const sessionsRouter = Router();
 
-const ExposedSurfaceSchema = z.object({
-  hostPath: z.string().min(1),
-  mode: z.enum(["read_only", "read_write"]),
-  label: z.string().optional(),
-});
-
 const ProviderModelSchema = z.object({
   provider: z.string().optional(),
   model: z.string().optional(),
@@ -29,7 +23,6 @@ const CreateSessionSchema = z.object({
   agentType: z.string().optional(),
   metadata: z.record(z.unknown()).optional(),
   workingDirectory: z.string().optional(),
-  exposedSurfaces: z.array(ExposedSurfaceSchema).optional(),
   runtimeMode: z.enum(["local", "docker"]).optional(),
   providerModel: ProviderModelSchema.optional(),
 });
@@ -144,7 +137,6 @@ sessionsRouter.post("/", async (req, res) => {
         },
       },
       workingDirectory: parsed.data.workingDirectory,
-      exposedSurfaces: parsed.data.exposedSurfaces,
     });
     res.status(201).json({ session });
   } catch (err) {

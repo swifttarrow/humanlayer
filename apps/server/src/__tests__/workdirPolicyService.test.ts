@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { mkdtemp, rmdir, writeFile, symlink, mkdir } from "fs/promises";
+import { mkdtemp, writeFile, symlink, mkdir } from "fs/promises";
 import path from "path";
 import os from "os";
 import { validateWorkingDirectory, WorkdirValidationError } from "../services/workdirPolicyService.js";
@@ -8,54 +8,41 @@ let tmpDir: string;
 let outsideDir: string;
 let homeTmpDir: string;
 
+const localConfig = { runtimeMode: "local" as const };
+
 beforeAll(async () => {
   tmpDir = await mkdtemp(path.join(os.tmpdir(), "workdir-test-"));
   outsideDir = await mkdtemp(path.join(os.tmpdir(), "workdir-outside-test-"));
   homeTmpDir = await mkdtemp(path.join(os.homedir(), "workdir-home-test-"));
-  // Create a subdirectory
   await mkdir(path.join(tmpDir, "project"));
   await mkdir(path.join(homeTmpDir, "project"));
-  // Create a file (not a directory)
   await writeFile(path.join(tmpDir, "file.txt"), "hello");
-  // Create a symlink inside allowed roots
   await symlink(path.join(tmpDir, "project"), path.join(tmpDir, "project-link"));
-  // Create a symlink outside allowed roots pointing inside allowed roots
   await symlink(path.join(tmpDir, "project"), path.join(outsideDir, "project-inside-link"));
 });
 
 afterAll(async () => {
-  // Clean up
   const { rm } = await import("fs/promises");
   await rm(tmpDir, { recursive: true, force: true });
   await rm(outsideDir, { recursive: true, force: true });
   await rm(homeTmpDir, { recursive: true, force: true });
 });
 
-const configWith = (roots: string[]) => ({
-  allowedRoots: roots,
-  runtimeMode: "local" as const,
-});
-
 describe("validateWorkingDirectory", () => {
-  it("accepts a valid directory under allowed roots", async () => {
-    const policy = await validateWorkingDirectory(
-      path.join(tmpDir, "project"),
-      [],
-      configWith([tmpDir])
-    );
+  it("accepts a valid existing directory", async () => {
+    const policy = await validateWorkingDirectory(path.join(tmpDir, "project"), localConfig);
     expect(policy.inputPath).toBe(path.join(tmpDir, "project"));
     expect(policy.resolvedPath).toContain("project");
     expect(policy.runtimeMode).toBe("local");
-    expect(policy.exposedSurfaces).toEqual([]);
   });
 
   it("rejects a non-existent path with WORKDIR_NOT_FOUND", async () => {
     await expect(
-      validateWorkingDirectory(path.join(tmpDir, "nonexistent"), [], configWith([tmpDir]))
+      validateWorkingDirectory(path.join(tmpDir, "nonexistent"), localConfig)
     ).rejects.toThrow(WorkdirValidationError);
 
     try {
-      await validateWorkingDirectory(path.join(tmpDir, "nonexistent"), [], configWith([tmpDir]));
+      await validateWorkingDirectory(path.join(tmpDir, "nonexistent"), localConfig);
     } catch (err) {
       expect((err as WorkdirValidationError).code).toBe("WORKDIR_NOT_FOUND");
     }
@@ -63,76 +50,37 @@ describe("validateWorkingDirectory", () => {
 
   it("rejects a file path with WORKDIR_NOT_DIRECTORY", async () => {
     try {
-      await validateWorkingDirectory(path.join(tmpDir, "file.txt"), [], configWith([tmpDir]));
+      await validateWorkingDirectory(path.join(tmpDir, "file.txt"), localConfig);
     } catch (err) {
       expect((err as WorkdirValidationError).code).toBe("WORKDIR_NOT_DIRECTORY");
-    }
-  });
-
-  it("rejects a path outside allowed roots with WORKDIR_NOT_ALLOWED", async () => {
-    try {
-      await validateWorkingDirectory(tmpDir, [], configWith(["/some/other/root"]));
-    } catch (err) {
-      expect((err as WorkdirValidationError).code).toBe("WORKDIR_NOT_ALLOWED");
     }
   });
 
   it("resolves symlinks and validates the target", async () => {
     const policy = await validateWorkingDirectory(
       path.join(tmpDir, "project-link"),
-      [],
-      configWith([tmpDir])
+      localConfig
     );
-    // resolvedPath should be the real path (not the symlink)
     expect(policy.resolvedPath).toContain("project");
     expect(policy.resolvedPath).not.toContain("project-link");
   });
 
-  it("rejects symlink input path when source is outside allowed roots", async () => {
-    await expect(
-      validateWorkingDirectory(
-        path.join(outsideDir, "project-inside-link"),
-        [],
-        configWith([tmpDir])
-      )
-    ).rejects.toMatchObject({
-      code: "WORKDIR_NOT_ALLOWED",
-    });
-  });
-
-  it("rejects exposed surfaces outside allowed roots", async () => {
-    try {
-      await validateWorkingDirectory(
-        path.join(tmpDir, "project"),
-        [{ hostPath: "/etc", mode: "read_only" }],
-        configWith([tmpDir])
-      );
-    } catch (err) {
-      expect((err as WorkdirValidationError).code).toBe("EXPOSED_SURFACE_NOT_ALLOWED");
-    }
-  });
-
-  it("accepts exposed surfaces within allowed roots", async () => {
+  it("accepts symlink when the link lives outside the target tree but resolves to a valid directory", async () => {
     const policy = await validateWorkingDirectory(
-      path.join(tmpDir, "project"),
-      [{ hostPath: path.join(tmpDir, "project"), mode: "read_only", label: "test" }],
-      configWith([tmpDir])
+      path.join(outsideDir, "project-inside-link"),
+      localConfig
     );
-    expect(policy.exposedSurfaces).toHaveLength(1);
-    expect(policy.exposedSurfaces[0].label).toBe("test");
+    expect(policy.resolvedPath).toContain("project");
+    expect(policy.resolvedPath).not.toContain("project-inside-link");
   });
 
-  it("accepts ~-prefixed working directory paths when under allowed roots", async () => {
+  it("accepts ~-prefixed working directory paths", async () => {
     const home = os.homedir();
     const projectPath = path.join(homeTmpDir, "project");
     const relFromHome = path.relative(home, projectPath);
     const tildePath = relFromHome ? `~/${relFromHome}` : "~";
 
-    const policy = await validateWorkingDirectory(
-      tildePath,
-      [],
-      configWith([home])
-    );
+    const policy = await validateWorkingDirectory(tildePath, localConfig);
     expect(policy.inputPath).toBe(tildePath);
     expect(policy.resolvedPath).toContain("workdir-home-test-");
   });

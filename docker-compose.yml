@@ -25,7 +25,6 @@ services:
       LEASE_DURATION_SECONDS: 60
       LEASE_SWEEP_INTERVAL_MS: 30000
       NODE_ENV: production
-      WORKDIR_ALLOWED_ROOTS: ${WORKDIR_ALLOWED_ROOTS:-/workspace,/tmp}
       RUNTIME_MODE: ${RUNTIME_MODE:-docker}
     command: >
       sh -c "npx prisma migrate deploy && node dist/apps/server/src/index.js"

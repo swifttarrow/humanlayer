@@ -82,10 +82,7 @@ export async function createSession(
   }
 
   if (input.workingDirectory) {
-    const policy = await validateWorkingDirectory(
-      input.workingDirectory,
-      input.exposedSurfaces
-    );
+    const policy = await validateWorkingDirectory(input.workingDirectory);
     metadata.workdirPolicy = policy;
     // Persist canonical path details for session metadata
     metadata.workdirDetails = {

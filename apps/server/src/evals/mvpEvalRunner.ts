@@ -220,7 +220,6 @@ async function evalWorkdir() {
   console.log("\n[Working Directory Policy]");
 
   await run("WD-01", "Create session with workingDirectory stores policy in metadata", "workdir", true, async () => {
-    // Use /tmp as allowed root (default config)
     try {
       const { session } = await apiPost<{ session: { id: string; metadata?: Record<string, unknown> } }>("/sessions", {
         goal: "workdir eval test",
@@ -234,7 +233,7 @@ async function evalWorkdir() {
         notes: policy ? `resolvedPath=${policy.resolvedPath}` : "No policy in metadata",
       };
     } catch (err) {
-      return { passed: false, notes: `Error: ${String(err)} — server may not have /tmp in WORKDIR_ALLOWED_ROOTS` };
+      return { passed: false, notes: `Error: ${String(err)}` };
     }
   });
 
@@ -255,7 +254,7 @@ async function evalWorkdir() {
     } catch (err) {
       const msg = String(err);
       return {
-        passed: msg.includes("WORKDIR_NOT_FOUND") || msg.includes("WORKDIR_NOT_ALLOWED"),
+        passed: msg.includes("WORKDIR_NOT_FOUND"),
         notes: `Rejected with: ${msg.slice(0, 200)}`,
       };
     }

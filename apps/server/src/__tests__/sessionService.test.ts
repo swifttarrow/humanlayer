@@ -78,7 +78,6 @@ describe("createSession", () => {
               inputPath: "/repo",
               resolvedPath: "/repo",
               runtimeMode: "local",
-              exposedSurfaces: [],
             },
           },
         }),
