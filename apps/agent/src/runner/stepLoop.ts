@@ -312,7 +312,10 @@ export async function runStepLoop(opts: StepLoopOptions): Promise<StepLoopResult
     },
     {
       role: "user",
-      content: `Task: ${opts.goal}`,
+      content:
+        opts.workdirPolicy?.resolvedPath
+          ? `Task: ${opts.goal}\n\nWorking directory (resolve relative paths here): ${opts.workdirPolicy.resolvedPath}`
+          : `Task: ${opts.goal}`,
     },
   ];
 
@@ -443,14 +446,16 @@ export async function runStepLoop(opts: StepLoopOptions): Promise<StepLoopResult
                 reason: "patch_not_validated" as BlockedReason,
                 phase: "validating" as SessionPhase,
                 writeAttempted: true,
-                summary: "Validation failed after inferred retry",
+                summary:
+                  "Inferred project checks (e.g. npm run typecheck/build) failed twice after edits. See the validation tool output in the trace.",
                 explorationBudget: getBudgetState(tracker),
               }, { isTerminal: true });
               await emitter.flush();
               clearInterval(heartbeatTimer);
               return {
                 outcome: "blocked",
-                summary: "Validation failed after inferred retry",
+                summary:
+                  "Inferred project checks (e.g. npm run typecheck/build) failed twice after edits. See the validation tool output in the trace.",
                 blockedReason: "patch_not_validated",
               };
             }
@@ -588,18 +593,20 @@ export async function runStepLoop(opts: StepLoopOptions): Promise<StepLoopResult
       } else if (stepHasWrite && tracker.patchFailed && tracker.patchAttempts >= 2) {
         // Second patch also failed — terminal as blocked
         emitter.emit("session.blocked", {
-          reason: "patch_not_validated" as BlockedReason,
+          reason: "patch_apply_failed" as BlockedReason,
           phase: tracker.phase,
           writeAttempted: true,
-          summary: "Patch attempted but validation failed after retry",
+          summary:
+            "apply_patch failed twice (e.g. missing file/parent directory or invalid diff). See the last failed patch in the trace.",
           explorationBudget: getBudgetState(tracker),
         }, { isTerminal: true });
         await emitter.flush();
         clearInterval(heartbeatTimer);
         return {
           outcome: "blocked",
-          summary: "Patch attempted but validation failed after retry",
-          blockedReason: "patch_not_validated",
+          summary:
+            "apply_patch failed twice (e.g. missing file/parent directory or invalid diff). See the last failed patch in the trace.",
+          blockedReason: "patch_apply_failed",
         };
       }
 

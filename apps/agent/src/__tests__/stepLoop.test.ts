@@ -867,7 +867,7 @@ describe("runStepLoop", () => {
 
     const result = await runStepLoop({ ...baseOpts, sessionId: "sess-retry-fail" });
     expect(result.outcome).toBe("blocked");
-    expect(result.blockedReason).toBe("patch_not_validated");
+    expect(result.blockedReason).toBe("patch_apply_failed");
   });
 
   it("emits blocked for max-step exhaustion without write attempt", async () => {
