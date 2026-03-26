@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api.js";
-import type { ExposedSurface, RuntimeMode } from "@humanlayer/shared";
+import type { RuntimeMode } from "@humanlayer/shared";
 
 export function NewSessionPage() {
   const navigate = useNavigate();
@@ -9,23 +9,8 @@ export function NewSessionPage() {
   const [context, setContext] = useState("");
   const [workingDirectory, setWorkingDirectory] = useState("");
   const [runtimeMode, setRuntimeMode] = useState<RuntimeMode | "">("");
-  const [exposedSurfaces, setExposedSurfaces] = useState<ExposedSurface[]>([]);
-  const [newSurfacePath, setNewSurfacePath] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const addExposedSurface = () => {
-    if (!newSurfacePath.trim()) return;
-    setExposedSurfaces((prev) => [
-      ...prev,
-      { hostPath: newSurfacePath.trim(), mode: "read_only" as const },
-    ]);
-    setNewSurfacePath("");
-  };
-
-  const removeExposedSurface = (index: number) => {
-    setExposedSurfaces((prev) => prev.filter((_, i) => i !== index));
-  };
 
   const handleCreate = async () => {
     if (!goal.trim()) return;
@@ -36,7 +21,6 @@ export function NewSessionPage() {
         goal: goal.trim(),
         metadata: context ? { context } : undefined,
         workingDirectory: workingDirectory.trim() || undefined,
-        exposedSurfaces: exposedSurfaces.length > 0 ? exposedSurfaces : undefined,
         ...(runtimeMode ? { runtimeMode: runtimeMode as RuntimeMode } : {}),
       } as Parameters<typeof api.sessions.create>[0]);
       navigate(`/sessions/${res.session.id}`);
@@ -162,59 +146,6 @@ export function NewSessionPage() {
               <option value="local">Local</option>
               <option value="docker">Docker</option>
             </select>
-          </div>
-
-          {/* Exposed surfaces editor */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <label style={{ color: "#64748B", fontSize: 11, fontWeight: 600, letterSpacing: 2 }}>EXPOSED SURFACES</label>
-            {exposedSurfaces.map((surface, i) => (
-              <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ color: "#94A3B8", fontSize: 13, fontFamily: "'JetBrains Mono', monospace", flex: 1 }}>
-                  {surface.hostPath} ({surface.mode})
-                </span>
-                <button
-                  onClick={() => removeExposedSurface(i)}
-                  style={{ background: "none", border: "1px solid #475569", borderRadius: 4, color: "#F87171", cursor: "pointer", padding: "4px 8px", fontSize: 12 }}
-                >
-                  Remove
-                </button>
-              </div>
-            ))}
-            <div style={{ display: "flex", gap: 8 }}>
-              <input
-                type="text"
-                value={newSurfacePath}
-                onChange={(e) => setNewSurfacePath(e.target.value)}
-                placeholder="/path/to/expose (read-only)"
-                style={{
-                  background: "#0F172A",
-                  border: "1px solid #1E293B",
-                  borderRadius: 8,
-                  padding: "10px 14px",
-                  color: "#fff",
-                  fontSize: 13,
-                  fontFamily: "'JetBrains Mono', monospace",
-                  outline: "none",
-                  flex: 1,
-                  boxSizing: "border-box",
-                }}
-              />
-              <button
-                onClick={addExposedSurface}
-                disabled={!newSurfacePath.trim()}
-                style={{
-                  background: newSurfacePath.trim() ? "#334155" : "#1E293B",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: 6,
-                  padding: "10px 14px",
-                  cursor: newSurfacePath.trim() ? "pointer" : "not-allowed",
-                  fontSize: 13,
-                }}
-              >
-                Add
-              </button>
-            </div>
           </div>
 
           {error && <div style={{ color: "#F87171", fontSize: 14 }}>{error}</div>}

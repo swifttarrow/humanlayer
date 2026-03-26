@@ -37,6 +37,8 @@ export function SessionDetailPage() {
           setSession(sseEvent.data as Session);
         } else if (sseEvent.type === "event") {
           const ev = sseEvent.data as SessionEvent;
+          // Ignore stray events from a previous session (e.g. before state reset commits).
+          if (ev.sessionId !== id) return;
           setEvents((prev) => {
             if (prev.some((e) => e.id === ev.id)) return prev;
             const next = [...prev, ev].sort((a, b) => a.sequenceNumber - b.sequenceNumber);
@@ -68,6 +70,12 @@ export function SessionDetailPage() {
   // Initial load + SSE
   useEffect(() => {
     if (!id) return;
+
+    // New session id: each session has its own sequence space starting at 1. Without a reset,
+    // follow-up navigation would merge the previous session's events with the new one's when
+    // sorting by sequenceNumber (interleaved steps and alternating prompt groups).
+    lastSeqRef.current = -1;
+    setEvents([]);
 
     api.sessions
       .get(id)
@@ -243,9 +251,11 @@ export function SessionDetailPage() {
             </span>
           </div>
           <div style={{ flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 8, display: "flex", flexDirection: "column", gap: 16 }}>
-            {activeTab === "trace" && <StructuredTrace events={events} currentTool={state?.currentTool} />}
-            {activeTab === "changes" && <ChangesPanel events={events} />}
-            {activeTab === "logs" && <TerminalPanel events={events} />}
+            {activeTab === "trace" && (
+              <StructuredTrace key={id} events={events} currentTool={state?.currentTool} />
+            )}
+            {activeTab === "changes" && <ChangesPanel key={id} events={events} />}
+            {activeTab === "logs" && <TerminalPanel key={id} events={events} />}
 
             <div style={{ background: "#1E293B", borderRadius: 8, padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
               <textarea
@@ -344,7 +354,7 @@ export function SessionDetailPage() {
           <div style={{ background: "#0F172A", height: 1 }} />
 
           {/* Raw events */}
-          <RawEventsPanel events={events} />
+          <RawEventsPanel key={id} events={events} />
         </div>
       </div>
     </div>
