@@ -1,14 +1,13 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api.js";
-import type { RuntimeMode } from "@humanlayer/shared";
 
 export function NewSessionPage() {
   const navigate = useNavigate();
   const [goal, setGoal] = useState("");
   const [context, setContext] = useState("");
   const [workingDirectory, setWorkingDirectory] = useState("");
-  const [runtimeMode, setRuntimeMode] = useState<RuntimeMode | "">("");
+  const [githubRepoUrl, setGithubRepoUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -20,9 +19,9 @@ export function NewSessionPage() {
       const res = await api.sessions.create({
         goal: goal.trim(),
         metadata: context ? { context } : undefined,
-        workingDirectory: workingDirectory.trim() || undefined,
-        ...(runtimeMode ? { runtimeMode: runtimeMode as RuntimeMode } : {}),
-      } as Parameters<typeof api.sessions.create>[0]);
+        ...(workingDirectory.trim() ? { workingDirectory: workingDirectory.trim() } : {}),
+        ...(githubRepoUrl.trim() ? { githubRepoUrl: githubRepoUrl.trim() } : {}),
+      });
       navigate(`/sessions/${res.session.id}`);
     } catch (err) {
       setError(String(err));
@@ -32,7 +31,6 @@ export function NewSessionPage() {
 
   return (
     <div style={{ background: "#0A0F1C", minHeight: "100vh", color: "#fff", fontFamily: "Inter, sans-serif" }}>
-      {/* Header */}
       <div style={{ background: "#1E293B", padding: "20px 32px", display: "flex", alignItems: "center", gap: 12 }}>
         <button
           onClick={() => navigate("/")}
@@ -43,22 +41,22 @@ export function NewSessionPage() {
         <span style={{ color: "#fff", fontSize: 20, fontWeight: 600 }}>New Session</span>
       </div>
 
-      {/* Form */}
       <div style={{ display: "flex", justifyContent: "center", alignItems: "center", padding: "40px 32px", minHeight: "calc(100vh - 60px)" }}>
         <div style={{ background: "#1E293B", borderRadius: 12, padding: 32, width: 680, display: "flex", flexDirection: "column", gap: 28 }}>
-          {/* Title */}
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             <div style={{ fontSize: 24, fontWeight: 600 }}>Create Coding Session</div>
-            <div style={{ color: "#94A3B8", fontSize: 14 }}>Describe the task you want the agent to complete.</div>
+            <div style={{ color: "#94A3B8", fontSize: 14, lineHeight: 1.5 }}>
+              By default the agent uses the bind-mounted workspace from Docker Compose (typically <code style={{ color: "#94A3B8" }}>/workspace</code> on the
+              host as <code style={{ color: "#94A3B8" }}>./_workspace</code>). Edits are written to files on your machine—no GitHub required.
+            </div>
           </div>
 
-          {/* Task prompt */}
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             <label style={{ color: "#64748B", fontSize: 11, fontWeight: 600, letterSpacing: 2 }}>TASK PROMPT</label>
             <textarea
               value={goal}
               onChange={(e) => setGoal(e.target.value)}
-              placeholder="e.g. Refactor auth middleware to use JWT tokens..."
+              placeholder="e.g. Add a README that explains how to run the app..."
               rows={6}
               style={{
                 background: "#0F172A",
@@ -76,13 +74,59 @@ export function NewSessionPage() {
             />
           </div>
 
-          {/* Additional context */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <label style={{ color: "#64748B", fontSize: 11, fontWeight: 600, letterSpacing: 2 }}>WORKSPACE PATH (OPTIONAL)</label>
+            <input
+              type="text"
+              value={workingDirectory}
+              onChange={(e) => setWorkingDirectory(e.target.value)}
+              placeholder="Leave empty for default (/workspace in Docker)"
+              style={{
+                background: "#0F172A",
+                border: "1px solid #1E293B",
+                borderRadius: 8,
+                padding: "12px 16px",
+                color: "#fff",
+                fontSize: 14,
+                fontFamily: "'JetBrains Mono', monospace",
+                outline: "none",
+                width: "100%",
+                boxSizing: "border-box",
+              }}
+            />
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <label style={{ color: "#64748B", fontSize: 11, fontWeight: 600, letterSpacing: 2 }}>PUBLIC GITHUB REPO (OPTIONAL)</label>
+            <input
+              type="url"
+              value={githubRepoUrl}
+              onChange={(e) => setGithubRepoUrl(e.target.value)}
+              placeholder="https://github.com/owner/repo — requires GITHUB_TOKEN on server"
+              style={{
+                background: "#0F172A",
+                border: "1px solid #1E293B",
+                borderRadius: 8,
+                padding: "12px 16px",
+                color: "#fff",
+                fontSize: 14,
+                fontFamily: "'JetBrains Mono', monospace",
+                outline: "none",
+                width: "100%",
+                boxSizing: "border-box",
+              }}
+            />
+            <div style={{ color: "#64748B", fontSize: 12, lineHeight: 1.5 }}>
+              If set, the server clones this public repository into a session folder and can push a branch after edits. Omit for local-file-only mode.
+            </div>
+          </div>
+
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             <label style={{ color: "#64748B", fontSize: 11, fontWeight: 600, letterSpacing: 2 }}>ADDITIONAL CONTEXT</label>
             <textarea
               value={context}
               onChange={(e) => setContext(e.target.value)}
-              placeholder="Optional: relevant files, constraints, or background info..."
+              placeholder="Optional: constraints, files to touch, etc."
               rows={3}
               style={{
                 background: "#0F172A",
@@ -100,57 +144,8 @@ export function NewSessionPage() {
             />
           </div>
 
-          {/* Working directory */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <label style={{ color: "#64748B", fontSize: 11, fontWeight: 600, letterSpacing: 2 }}>WORKING DIRECTORY</label>
-            <input
-              type="text"
-              value={workingDirectory}
-              onChange={(e) => setWorkingDirectory(e.target.value)}
-              placeholder="Optional: /path/to/project (absolute path)"
-              style={{
-                background: "#0F172A",
-                border: "1px solid #1E293B",
-                borderRadius: 8,
-                padding: "12px 16px",
-                color: "#fff",
-                fontSize: 14,
-                fontFamily: "'JetBrains Mono', monospace",
-                outline: "none",
-                width: "100%",
-                boxSizing: "border-box",
-              }}
-            />
-          </div>
-
-          {/* Runtime mode selector */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <label style={{ color: "#64748B", fontSize: 11, fontWeight: 600, letterSpacing: 2 }}>RUNTIME MODE</label>
-            <select
-              value={runtimeMode}
-              onChange={(e) => setRuntimeMode(e.target.value as RuntimeMode | "")}
-              aria-label="Runtime Mode"
-              style={{
-                background: "#0F172A",
-                border: "1px solid #1E293B",
-                borderRadius: 8,
-                padding: "12px 16px",
-                color: "#fff",
-                fontSize: 14,
-                outline: "none",
-                width: "100%",
-                boxSizing: "border-box",
-              }}
-            >
-              <option value="">Default (system policy)</option>
-              <option value="local">Local</option>
-              <option value="docker">Docker</option>
-            </select>
-          </div>
-
           {error && <div style={{ color: "#F87171", fontSize: 14 }}>{error}</div>}
 
-          {/* Buttons */}
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 12 }}>
             <button
               onClick={() => navigate("/")}

@@ -123,14 +123,8 @@ export function SessionDetailPage() {
     setSubmittingReply(true);
     setError(null);
     try {
-      const metadata = session?.metadata as Record<string, unknown> | undefined;
-      const workdirPolicy = metadata?.workdirPolicy as { resolvedPath?: unknown } | undefined;
-      const inheritedWorkingDirectory = typeof workdirPolicy?.resolvedPath === "string"
-        ? workdirPolicy.resolvedPath
-        : undefined;
       const res = await api.sessions.create({
         goal: reply.trim(),
-        ...(inheritedWorkingDirectory ? { workingDirectory: inheritedWorkingDirectory } : {}),
         metadata: {
           parentSessionId: id,
           followup: true,
@@ -332,10 +326,13 @@ export function SessionDetailPage() {
                   const meta = session.metadata as Record<string, unknown> | undefined;
                   const sel = meta?.selection as Record<string, string> | undefined;
                   const wd = meta?.workdirDetails as Record<string, string> | undefined;
+                  const gh = meta?.githubSession as Record<string, string> | undefined;
                   const rows: string[][] = [];
                   if (sel?.runtimeMode) rows.push(["Runtime", sel.runtimeMode]);
                   if (sel?.provider) rows.push(["Provider", sel.provider]);
                   if (sel?.model) rows.push(["Model", sel.model]);
+                  if (gh?.repoUrl) rows.push(["GitHub", gh.repoUrl]);
+                  if (gh?.branch) rows.push(["Branch", gh.branch]);
                   if (wd?.enteredPath) rows.push(["Workdir", wd.enteredPath]);
                   if (wd?.canonicalPath && wd.canonicalPath !== wd.enteredPath) rows.push(["Canonical", wd.canonicalPath]);
                   return rows;

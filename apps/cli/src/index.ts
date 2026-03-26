@@ -83,8 +83,8 @@ interface RunOptions {
   goal: string;
   headless: boolean;
   outputPath?: string;
+  githubRepoUrl?: string;
   workingDirectory?: string;
-  runtimeMode?: string;
   agentType?: string;
   timeout?: number;
 }
@@ -92,8 +92,8 @@ interface RunOptions {
 async function cmdRun(opts: RunOptions): Promise<number> {
   const body: Record<string, unknown> = {
     goal: opts.goal,
-    ...(opts.workingDirectory ? { workingDirectory: opts.workingDirectory } : {}),
-    ...(opts.runtimeMode ? { runtimeMode: opts.runtimeMode } : {}),
+    ...(opts.githubRepoUrl?.trim() ? { githubRepoUrl: opts.githubRepoUrl.trim() } : {}),
+    ...(opts.workingDirectory?.trim() ? { workingDirectory: opts.workingDirectory.trim() } : {}),
     ...(opts.agentType ? { agentType: opts.agentType } : {}),
   };
 
@@ -266,8 +266,8 @@ function printUsage(): void {
 Options:
   --headless                        Emit JSONL output instead of interactive display
   --output <path>                   Write JSONL output to file (headless only)
-  --workdir <path>                  Working directory for the session
-  --runtime-mode <local|docker>     Runtime mode override
+  --repo <url>                      Optional public GitHub repo (clone + push; needs server GITHUB_TOKEN)
+  --workdir <path>                  Optional workspace path (default: server SESSION_DEFAULT_WORKDIR, e.g. /workspace)
   --agent-type <type>               Agent type selection
   --timeout <ms>                    Timeout in milliseconds (default: 1800000)
 
@@ -297,8 +297,8 @@ async function main(): Promise<number> {
           goal,
           headless: flags.headless === true,
           outputPath: typeof flags.output === "string" ? flags.output : undefined,
+          githubRepoUrl: typeof flags.repo === "string" ? flags.repo : undefined,
           workingDirectory: typeof flags.workdir === "string" ? flags.workdir : undefined,
-          runtimeMode: typeof flags["runtime-mode"] === "string" ? flags["runtime-mode"] : undefined,
           agentType: typeof flags["agent-type"] === "string" ? flags["agent-type"] : undefined,
           timeout: typeof flags.timeout === "string" ? parseInt(flags.timeout, 10) : undefined,
         });

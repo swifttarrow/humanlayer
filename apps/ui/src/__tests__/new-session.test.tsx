@@ -3,7 +3,6 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { NewSessionPage } from "../pages/NewSessionPage.js";
 
-// Mock the api module
 const mockCreate = vi.fn();
 vi.mock("../api.js", () => ({
   api: {
@@ -13,7 +12,6 @@ vi.mock("../api.js", () => ({
   },
 }));
 
-// Mock useNavigate
 const mockNavigate = vi.fn();
 vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual("react-router-dom");
@@ -36,99 +34,46 @@ describe("NewSessionPage", () => {
     vi.clearAllMocks();
   });
 
-  it("renders the working directory input", () => {
-    renderPage();
-    expect(screen.getByPlaceholderText(/absolute path/i)).toBeDefined();
-  });
-
-  it("sends workingDirectory in create request", async () => {
+  it("creates session with goal only (default workspace)", async () => {
     mockCreate.mockResolvedValue({ session: { id: "sess-1" } });
     renderPage();
 
-    const goalInput = screen.getByPlaceholderText(/Refactor/);
-    const workdirInput = screen.getByPlaceholderText(/absolute path/i);
-    const createButton = screen.getByText("Create Session");
+    fireEvent.change(screen.getByPlaceholderText(/README/), { target: { value: "test goal" } });
+    fireEvent.click(screen.getByText("Create Session"));
 
-    fireEvent.change(goalInput, { target: { value: "test goal" } });
-    fireEvent.change(workdirInput, { target: { value: "/tmp/project" } });
-    fireEvent.click(createButton);
+    await waitFor(() => {
+      expect(mockCreate).toHaveBeenCalled();
+    });
+    const body = mockCreate.mock.calls[0][0] as Record<string, unknown>;
+    expect(body.goal).toBe("test goal");
+    expect(body.githubRepoUrl).toBeUndefined();
+    expect(body.workingDirectory).toBeUndefined();
+  });
+
+  it("sends optional workingDirectory and githubRepoUrl when set", async () => {
+    mockCreate.mockResolvedValue({ session: { id: "sess-1" } });
+    renderPage();
+
+    fireEvent.change(screen.getByPlaceholderText(/README/), { target: { value: "goal" } });
+    fireEvent.change(screen.getByPlaceholderText(/Leave empty/), { target: { value: "/tmp/proj" } });
+    fireEvent.change(screen.getByPlaceholderText(/github.com\/owner/), {
+      target: { value: "https://github.com/foo/bar" },
+    });
+    fireEvent.click(screen.getByText("Create Session"));
 
     await waitFor(() => {
       expect(mockCreate).toHaveBeenCalledWith(
         expect.objectContaining({
-          goal: "test goal",
-          workingDirectory: "/tmp/project",
+          goal: "goal",
+          workingDirectory: "/tmp/proj",
+          githubRepoUrl: "https://github.com/foo/bar",
         })
       );
     });
   });
 
-  it("omits workingDirectory when empty", async () => {
-    mockCreate.mockResolvedValue({ session: { id: "sess-1" } });
+  it("disables create until goal is non-empty", () => {
     renderPage();
-
-    const goalInput = screen.getByPlaceholderText(/Refactor/);
-    const createButton = screen.getByText("Create Session");
-
-    fireEvent.change(goalInput, { target: { value: "test goal" } });
-    fireEvent.click(createButton);
-
-    await waitFor(() => {
-      expect(mockCreate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          goal: "test goal",
-          workingDirectory: undefined,
-        })
-      );
-    });
-  });
-
-  it("renders runtime mode selector", () => {
-    renderPage();
-    expect(screen.getByLabelText("Runtime Mode")).toBeDefined();
-  });
-
-  it("sends runtimeMode when selected", async () => {
-    mockCreate.mockResolvedValue({ session: { id: "sess-1" } });
-    renderPage();
-
-    const goalInput = screen.getByPlaceholderText(/Refactor/);
-    const modeSelect = screen.getByLabelText("Runtime Mode");
-    const createButton = screen.getByText("Create Session");
-
-    fireEvent.change(goalInput, { target: { value: "test goal" } });
-    fireEvent.change(modeSelect, { target: { value: "docker" } });
-    fireEvent.click(createButton);
-
-    await waitFor(() => {
-      expect(mockCreate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          goal: "test goal",
-          runtimeMode: "docker",
-        })
-      );
-    });
-  });
-
-  it("displays error and preserves form values on failure", async () => {
-    mockCreate.mockRejectedValue(new Error('{"error":"Working directory not found","code":"WORKDIR_NOT_FOUND"}'));
-    renderPage();
-
-    const goalInput = screen.getByPlaceholderText(/Refactor/);
-    const workdirInput = screen.getByPlaceholderText(/absolute path/i);
-    const createButton = screen.getByText("Create Session");
-
-    fireEvent.change(goalInput, { target: { value: "test goal" } });
-    fireEvent.change(workdirInput, { target: { value: "/nonexistent" } });
-    fireEvent.click(createButton);
-
-    await waitFor(() => {
-      // Error is displayed
-      expect(screen.getByText(/WORKDIR_NOT_FOUND/)).toBeDefined();
-    });
-
-    // Form values are preserved
-    expect((goalInput as HTMLTextAreaElement).value).toBe("test goal");
-    expect((workdirInput as HTMLInputElement).value).toBe("/nonexistent");
+    expect((screen.getByText("Create Session") as HTMLButtonElement).disabled).toBe(true);
   });
 });

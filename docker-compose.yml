@@ -25,7 +25,14 @@ services:
       LEASE_DURATION_SECONDS: 60
       LEASE_SWEEP_INTERVAL_MS: 30000
       NODE_ENV: production
-      RUNTIME_MODE: ${RUNTIME_MODE:-docker}
+      RUNTIME_MODE: docker
+      RUNTIME_MODE_POLICY: docker_only
+      SESSION_DEFAULT_WORKDIR: /workspace
+      SESSION_WORKSPACE_ROOT: /workspace/sessions
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+    volumes:
+      - ${WORKSPACE_PATH:-./_workspace}:/workspace
     command: >
       sh -c "npx prisma migrate deploy && node dist/apps/server/src/index.js"
     ports:
