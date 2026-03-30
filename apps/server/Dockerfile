@@ -39,4 +39,5 @@ WORKDIR /app/apps/server
 ENV NODE_ENV=production
 EXPOSE 3000
 
-CMD ["node", "dist/apps/server/src/index.js"]
+# Apply migrations then start (matches docker-compose; required on Railway if no release phase)
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/apps/server/src/index.js"]
